@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "xyoplay",
+  "version": "${version}",
+  "name": "XYOPlay Client",
+  "description": "Pemutar musik client dengan GUI musik modern, scroll dan input teks yang bisa diedit, progres audio, shuffle/repeat, pencarian YouTube, unduhan URL, serta pembaca komentar TikTok LIVE opsional dengan TTS lokal. Semua proses berjalan di client.",
+  "authors": [
+    "RFDEVV"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "id.rfdevv.xyoplay.client.XYOPlayClient"
+    ],
+    "modmenu": [
+      "id.rfdevv.xyoplay.client.XYOPlayModMenu"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "minecraft": "26.1.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  },
+  "icon": "assets/xyoplay/icon.png",
+  "suggests": {
+    "modmenu": "*"
+  }
+}
