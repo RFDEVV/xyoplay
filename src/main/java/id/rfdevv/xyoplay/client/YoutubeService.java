@@ -110,15 +110,15 @@ public final class YoutubeService {
     public static void search(Source source, String query) {
         if (query == null || query.isBlank()) { status = "Masukkan kata kunci pencarian"; return; }
         String q = query.trim();
-        boolean viaYtDlp = source == Source.YOUTUBE || (source == Source.TIKTOK && (q.startsWith("http") || q.startsWith("@") || q.startsWith("#")));
+        boolean viaYtDlp = source == Source.YOUTUBE || (source == Source.TIKTOK && (q.startsWith("@") || q.startsWith("#")));
         if (viaYtDlp && !enabled) { status = "yt-dlp nonaktif. Nyalakan melalui tab Alat."; return; }
         String target = null;
         if (source == Source.YOUTUBE) {
             target = q.startsWith("http") ? q : "ytsearch10:" + q;
             if (q.startsWith("http") && !allowedUrl(q)) { status = "Gunakan link YouTube yang valid"; return; }
-        } else if (viaYtDlp) {
+        } else if (source == Source.TIKTOK && (q.startsWith("@") || q.startsWith("#"))) {
             target = tiktokTarget(q);
-            if (target == null) { status = "Gunakan @akun, #hashtag, atau link video TikTok yang valid"; return; }
+            if (target == null) { status = "Gunakan @akun atau #hashtag TikTok yang valid"; return; }
         }
         if (!BUSY.compareAndSet(false, true)) { status = "Tunggu proses sebelumnya selesai…"; return; }
         cancelled = false;
@@ -129,11 +129,40 @@ public final class YoutubeService {
         final String finalTarget = target;
         Thread worker = new Thread(() -> {
             try {
-                List<Video> found;
+                List<Video> found = new ArrayList<>();
                 String suffix = "";
-                if (viaYtDlp) found = ytDlpList(finalTarget, source);
-                else if (source == Source.TIKTOK) found = TikWm.search(q);
-                else {
+                if (source == Source.TIKTOK) {
+                    if (q.startsWith("http")) {
+                        try {
+                            TikWm.Resolved resolved = TikWm.resolve(q);
+                            found.add(new Video(resolved.title(), q, resolved.author(), "0:00", resolved.audioUrl(), "TT", 0, 0, -1));
+                            suffix = " · link TikTok";
+                        } catch (Exception e) {
+                            found = ytDlpList(q, Source.TIKTOK);
+                            suffix = " · link TikTok";
+                        }
+                    } else if (q.startsWith("@") || q.startsWith("#")) {
+                        found = ytDlpList(finalTarget, Source.TIKTOK);
+                        suffix = " · akun TikTok";
+                    } else {
+                        try {
+                            found = TikWm.search(q);
+                            if (found.isEmpty()) throw new IOException("TikWM kosong");
+                            suffix = " · TikTok";
+                        } catch (Exception tikWmErr) {
+                            status = "Mencari sound TikTok alternatif…";
+                            try {
+                                found = ytDlpList("ytsearch15:tiktok " + q, Source.TIKTOK);
+                                suffix = " · sound TikTok";
+                            } catch (Exception ytErr) {
+                                found = ytDlpList("ytsearch10:" + q, Source.TIKTOK);
+                                suffix = " · audio pencarian";
+                            }
+                        }
+                    }
+                } else if (viaYtDlp) {
+                    found = ytDlpList(finalTarget, source);
+                } else {
                     Catalog.Result result = Catalog.search(q);
                     found = result.videos();
                     suffix = " · sumber " + result.source() + (result.note().isEmpty() ? "" : " (" + result.note() + ")");
@@ -146,11 +175,11 @@ public final class YoutubeService {
                 if (cancelled) return;
                 String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 status = switch (source) {
-                    case TIKTOK -> "Pencarian TikTok gagal: " + shorten(detail, 90);
+                    case TIKTOK -> "Pencarian TikTok: " + shorten(detail, 90);
                     case SPOTIFY -> "Pencarian lagu gagal: " + shorten(detail, 90);
                     default -> "Pencarian gagal: " + shorten(detail, 90);
                 };
-                System.err.println("[XYOPlay] Pencarian gagal: " + e);
+                System.err.println("[XYOPlay] Pencarian: " + e);
             } finally { activeProcess = null; BUSY.set(false); }
         }, "XYOPlay-Search");
         worker.setDaemon(true); worker.start();
@@ -196,14 +225,17 @@ public final class YoutubeService {
             String id = string(item, "id", "");
             String url = string(item, "url", "");
             if (url.isBlank() || !url.startsWith("http")) url = string(item, "webpage_url", "");
-            if (url.isBlank() && !id.isBlank() && source == Source.YOUTUBE) url = "https://www.youtube.com/watch?v=" + id;
+            if (url.isBlank() && !id.isBlank()) {
+                if (source == Source.YOUTUBE || !item.toString().contains("tiktok.com")) url = "https://www.youtube.com/watch?v=" + id;
+                else url = "https://www.tiktok.com/video/" + id;
+            }
             if (url.isBlank() || !allowedUrl(url)) continue;
             int seconds = item.has("duration") && item.get("duration").isJsonPrimitive() && item.get("duration").getAsJsonPrimitive().isNumber() ? item.get("duration").getAsInt() : -1;
             String title = string(item, "title", "");
             if (title.isBlank()) title = string(item, "description", "");
-            if (title.isBlank()) title = source == Source.TIKTOK ? "Video TikTok " + id : "Video tanpa judul";
-            String uploader = string(item, "uploader", string(item, "channel", string(item, "creator", source == Source.TIKTOK ? "TikTok" : "YouTube")));
-            found.add(new Video(title.replace('\n', ' '), url, uploader, formatDuration(seconds), null, "", 0, 0, seconds));
+            if (title.isBlank()) title = isTikTok(url) ? "Video TikTok " + id : "Video tanpa judul";
+            String uploader = string(item, "uploader", string(item, "channel", string(item, "creator", isTikTok(url) ? "TikTok" : "YouTube")));
+            found.add(new Video(title.replace('\n', ' '), url, uploader, formatDuration(seconds), null, isTikTok(url) ? "TT" : "", 0, 0, seconds));
         }
         return found;
     }

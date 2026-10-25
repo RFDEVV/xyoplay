@@ -82,9 +82,12 @@ final class TikWm {
             String body;
             try { body = Http.get(BASE + path, HEADERS); }
             finally { lastCall = System.currentTimeMillis(); }
+            if (body == null || body.trim().startsWith("<") || body.contains("cf-chl-opt") || body.contains("Just a moment")) {
+                throw new IOException("Layanan TikWM dibatasi Cloudflare");
+            }
             JsonObject root;
             try { root = JsonParser.parseString(body).getAsJsonObject(); }
-            catch (RuntimeException e) { throw new IOException("Respons tikwm bukan JSON (layanan sedang bermasalah?)"); }
+            catch (RuntimeException e) { throw new IOException("Respons tikwm bukan JSON"); }
             int code = root.has("code") && root.get("code").isJsonPrimitive() ? root.get("code").getAsInt() : 0;
             if (code == 0) return root;
             String msg = str(root, "msg");

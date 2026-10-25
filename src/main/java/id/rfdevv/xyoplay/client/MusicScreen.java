@@ -119,8 +119,8 @@ public final class MusicScreen extends Screen {
             case TIKTOK -> YoutubeService.results(YoutubeService.Source.TIKTOK).size();
             case SPOTIFY -> YoutubeService.results(YoutubeService.Source.SPOTIFY).size();
             case LINK -> 2;
-            case LIVE -> 2 + Math.max(1, TikTokLiveService.comments().size());
-            case SETTINGS -> 11;
+            case LIVE -> 3 + Math.max(1, TikTokLiveService.comments().size());
+            case SETTINGS -> 14;
             case TOOLS -> 4;
             case QUEUE -> MusicLibraryData.queued().size();
             case FAVORITES -> MusicLibraryData.favorites().size();
@@ -135,7 +135,7 @@ public final class MusicScreen extends Screen {
             case PLAYLISTS -> selectedPlaylist == null ? 34 : rowH;
             case YOUTUBE, TIKTOK, SPOTIFY -> compact ? 30 : 34;
             case LINK -> i == 0 ? 54 : 50;
-            case LIVE -> i == 0 ? 62 : i == 1 ? 42 : 26;
+            case LIVE -> i == 0 ? 62 : i == 1 ? 46 : i == 2 ? 42 : 26;
             case SETTINGS -> 42;
             case TOOLS -> i >= 2 ? 60 : 42;
         };
@@ -634,10 +634,10 @@ public final class MusicScreen extends Screen {
             boolean on = TikTokLiveService.isRunning();
             Ui.box(g, x, y, w, h - 4, 5, Ui.CARD, Ui.BORDER);
             String user = ClientSettings.tiktokUsername == null || ClientSettings.tiktokUsername.isBlank() ? "username belum diatur" : "@" + ClientSettings.tiktokUsername;
-            String total = TikTokLiveService.totalComments() > 0 ? " · " + TikTokLiveService.totalComments() + " komentar" : "";
+            String total = TikTokLiveService.totalComments() > 0 ? " · " + TikTokLiveService.totalComments() + " pesan" : "";
             g.text(font, Ui.fit(font, (on ? "AKTIF" : "SIAP") + " · " + user + total, w - 20), x + 10, y + 8, on ? Ui.OK : Ui.MUTED, false);
             g.text(font, Ui.fit(font, TikTokLiveService.status(), w - 20), x + 10, y + 21, Ui.TEXT, false);
-            int bw = Math.min(92, (w - 20 - 8) / 3), by = y + 35;
+            int bw = Math.min(84, (w - 20 - 12) / 4), by = y + 35;
             button(g, x + 10, by, bw, 18, "Mulai LIVE", true, mx, my, () -> {
                 ClientSettings.tiktokUsername = text().trim().replaceFirst("^@", ""); ClientSettings.save();
                 TikTokLiveService.start(ClientSettings.tiktokUsername); notice("Memulai pembaca TikTok LIVE");
@@ -645,9 +645,49 @@ public final class MusicScreen extends Screen {
             button(g, x + 14 + bw, by, bw, 18, "Stop LIVE", false, mx, my, () -> { TikTokLiveService.stop(); notice("Pembaca TikTok LIVE dihentikan"); });
             button(g, x + 18 + bw * 2, by, bw, 18, ClientSettings.ttsEnabled ? "TTS: ON" : "TTS: OFF", false, mx, my, () -> {
                 ClientSettings.ttsEnabled = !ClientSettings.ttsEnabled; ClientSettings.save();
-                notice("TTS " + (ClientSettings.ttsEnabled ? "aktif" : "nonaktif") + " · berlaku saat Mulai LIVE berikutnya");
+                TikTokLiveService.sendConfig();
+                notice("TTS " + (ClientSettings.ttsEnabled ? "aktif" : "nonaktif"));
+            });
+            button(g, x + 22 + bw * 3, by, bw, 18, "Bersihkan", false, mx, my, () -> {
+                TikTokLiveService.clearComments();
+                notice("Histori komentar & command dibersihkan");
             });
         } else if (i == 1) {
+            Ui.box(g, x, y, w, h - 4, 5, Ui.CARD, Ui.BORDER);
+            g.text(font, "Pengaturan TTS LIVE (Volume, Suara, Bahasa)", x + 10, y + 6, Ui.TEXT, false);
+            int sbw = Math.min(96, (w - 20 - 8) / 3), sby = y + 20;
+            // Button Vol
+            button(g, x + 10, sby, sbw, 18, "Vol: " + ClientSettings.ttsVolume + "%", false, mx, my, () -> {
+                int[] vols = {30, 50, 70, 80, 90, 100};
+                int next = 90;
+                for (int idx = 0; idx < vols.length; idx++) {
+                    if (vols[idx] == ClientSettings.ttsVolume) {
+                        next = vols[(idx + 1) % vols.length];
+                        break;
+                    }
+                }
+                ClientSettings.ttsVolume = next;
+                ClientSettings.save();
+                TikTokLiveService.sendConfig();
+                notice("Volume TTS: " + ClientSettings.ttsVolume + "%");
+            });
+            // Button Voice
+            String voiceLabel = ClientSettings.ttsVoice == 0 ? "Google (Pr)" : "Sistem";
+            button(g, x + 14 + sbw, sby, sbw, 18, "Suara: " + voiceLabel, false, mx, my, () -> {
+                ClientSettings.ttsVoice = (ClientSettings.ttsVoice + 1) % ClientSettings.TTS_VOICES.length;
+                ClientSettings.save();
+                TikTokLiveService.sendConfig();
+                notice("Suara TTS: " + ClientSettings.TTS_VOICES[ClientSettings.ttsVoice]);
+            });
+            // Button Lang
+            String langLabel = ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage];
+            button(g, x + 18 + sbw * 2, sby, sbw, 18, "Bahasa: " + langLabel, false, mx, my, () -> {
+                ClientSettings.ttsLanguage = (ClientSettings.ttsLanguage + 1) % ClientSettings.TTS_LANGS.length;
+                ClientSettings.save();
+                TikTokLiveService.sendConfig();
+                notice("Bahasa TTS: " + ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage]);
+            });
+        } else if (i == 2) {
             actionCard(g, x, y, w, h, mx, my, "Paket Python untuk LIVE", "Pasang TikTokLive + pyttsx3 lewat pip (butuh internet)",
                     TikTokLiveService.isInstalling() ? "Memasang…" : "Instal paket",
                     () -> { TikTokLiveService.installPackages(); notice("Memasang paket Python… lihat status di atas"); });
@@ -655,12 +695,16 @@ public final class MusicScreen extends Screen {
             List<TikTokLiveService.Comment> comments = TikTokLiveService.comments();
             Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
             int ty = y + (h - 2 - 8) / 2;
-            if (comments.isEmpty()) { g.text(font, Ui.fit(font, "Komentar akan tampil di sini setelah LIVE tersambung.", w - 16), x + 8, ty, Ui.DIM, false); return; }
-            TikTokLiveService.Comment c = comments.get(Math.min(comments.size() - 1, i - 2));
+            if (comments.isEmpty()) { g.text(font, Ui.fit(font, "Komentar, follow, dan gift akan tampil di sini saat LIVE tersambung.", w - 16), x + 8, ty, Ui.DIM, false); return; }
+            TikTokLiveService.Comment c = comments.get(Math.min(comments.size() - 1, i - 3));
             String user = Ui.fit(font, c.user(), w / 3);
-            g.text(font, user, x + 8, ty, Ui.ACCENT, false);
+            boolean isGift = c.text().startsWith("[GIFT]");
+            boolean isFollow = c.text().startsWith("[FOLLOW]");
+            int userCol = isGift ? 0xFFFFD700 : (isFollow ? Ui.OK : Ui.ACCENT);
+            int textCol = isGift ? 0xFFFFEA75 : (isFollow ? 0xFFA5D6A7 : Ui.TEXT);
+            g.text(font, user, x + 8, ty, userCol, false);
             int ux = x + 8 + font.width(user) + 6;
-            g.text(font, Ui.fit(font, c.text(), w - (ux - x) - 8), ux, ty, Ui.TEXT, false);
+            g.text(font, Ui.fit(font, c.text(), w - (ux - x) - 8), ux, ty, textCol, false);
         }
     }
 
@@ -681,17 +725,46 @@ public final class MusicScreen extends Screen {
                     () -> { ClientSettings.shuffle = !ClientSettings.shuffle; ClientSettings.save(); });
             case 4 -> toggleCard(g, x, y, w, h, mx, my, "Ulangi lagu (repeat)", "Putar ulang lagu yang sama setelah selesai", ClientSettings.repeat,
                     () -> { ClientSettings.repeat = !ClientSettings.repeat; ClientSettings.save(); });
-            case 5 -> toggleCard(g, x, y, w, h, mx, my, "Bacakan komentar LIVE (TTS)", "Suara sistem offline · berlaku saat Mulai LIVE berikutnya", ClientSettings.ttsEnabled,
-                    () -> { ClientSettings.ttsEnabled = !ClientSettings.ttsEnabled; ClientSettings.save(); });
-            case 6 -> {
+            case 5 -> toggleCard(g, x, y, w, h, mx, my, "Bacakan komentar LIVE (TTS)", "Aktifkan atau matikan pembacaan suara LIVE", ClientSettings.ttsEnabled,
+                    () -> { ClientSettings.ttsEnabled = !ClientSettings.ttsEnabled; ClientSettings.save(); TikTokLiveService.sendConfig(); notice("TTS " + (ClientSettings.ttsEnabled ? "aktif" : "nonaktif")); });
+            case 6 -> actionCard(g, x, y, w, h, mx, my, "Volume TTS LIVE", "Tingkat kenyaringan suara pembaca komentar", ClientSettings.ttsVolume + "%",
+                    () -> {
+                        int[] vols = {30, 50, 70, 80, 90, 100};
+                        int next = 90;
+                        for (int idx = 0; idx < vols.length; idx++) {
+                            if (vols[idx] == ClientSettings.ttsVolume) {
+                                next = vols[(idx + 1) % vols.length];
+                                break;
+                            }
+                        }
+                        ClientSettings.ttsVolume = next;
+                        ClientSettings.save();
+                        TikTokLiveService.sendConfig();
+                        notice("Volume TTS: " + ClientSettings.ttsVolume + "%");
+                    });
+            case 7 -> actionCard(g, x, y, w, h, mx, my, "Suara Pemeran TTS", "Pilihan suara Google (Perempuan) atau Sistem", ClientSettings.TTS_VOICES[ClientSettings.ttsVoice],
+                    () -> {
+                        ClientSettings.ttsVoice = (ClientSettings.ttsVoice + 1) % ClientSettings.TTS_VOICES.length;
+                        ClientSettings.save();
+                        TikTokLiveService.sendConfig();
+                        notice("Suara TTS: " + ClientSettings.TTS_VOICES[ClientSettings.ttsVoice]);
+                    });
+            case 8 -> actionCard(g, x, y, w, h, mx, my, "Bahasa TTS LIVE", "Pilihan bahasa suara Google TTS", ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage],
+                    () -> {
+                        ClientSettings.ttsLanguage = (ClientSettings.ttsLanguage + 1) % ClientSettings.TTS_LANGS.length;
+                        ClientSettings.save();
+                        TikTokLiveService.sendConfig();
+                        notice("Bahasa TTS: " + ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage]);
+                    });
+            case 9 -> {
                 Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
                 String key = XYOPlayClient.keyName();
                 g.text(font, Ui.fit(font, "Tombol buka / tutup GUI: " + key, w - 20), x + 10, y + 8, key.equals("BELUM DIATUR") ? Ui.BAD : Ui.TEXT, false);
                 g.text(font, Ui.fit(font, "Ubah di Options > Controls > Key Binds · atau ketik /xyoplay", w - 20), x + 10, y + 21, Ui.MUTED, false);
             }
-            case 7 -> secretCard(g, x, y, w, h, mx, my, "Spotify Client ID", ClientSettings.spotifyClientId, v -> ClientSettings.spotifyClientId = v);
-            case 8 -> secretCard(g, x, y, w, h, mx, my, "Spotify Client Secret", ClientSettings.spotifySecret, v -> ClientSettings.spotifySecret = v);
-            case 9 -> secretCard(g, x, y, w, h, mx, my, "Euler Stream API key (LIVE, opsional)", ClientSettings.eulerApiKey, v -> ClientSettings.eulerApiKey = v);
+            case 10 -> secretCard(g, x, y, w, h, mx, my, "Spotify Client ID", ClientSettings.spotifyClientId, v -> ClientSettings.spotifyClientId = v);
+            case 11 -> secretCard(g, x, y, w, h, mx, my, "Spotify Client Secret", ClientSettings.spotifySecret, v -> ClientSettings.spotifySecret = v);
+            case 12 -> secretCard(g, x, y, w, h, mx, my, "Euler Stream API key (LIVE, opsional)", ClientSettings.eulerApiKey, v -> ClientSettings.eulerApiKey = v);
             default -> actionCard(g, x, y, w, h, mx, my, "Folder musik lokal", "Buka folder untuk menambah file audio", "Buka folder", this::openFolder);
         }
     }

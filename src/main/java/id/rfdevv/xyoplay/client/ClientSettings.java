@@ -19,6 +19,13 @@ public final class ClientSettings {
     public static volatile boolean shuffle = false;
     public static volatile boolean repeat = false;
     public static volatile boolean ttsEnabled = true;
+    public static volatile int ttsVolume = 90;
+    public static volatile int ttsVoice = 0;
+    public static volatile int ttsLanguage = 0;
+    public static final String[] TTS_VOICES = {"Google (Perempuan)", "Sistem (Offline)"};
+    public static final String[] TTS_VOICE_KEYS = {"google", "system"};
+    public static final String[] TTS_LANGS = {"Indonesia", "Inggris", "Jawa", "Sunda", "Jepang", "Korea"};
+    public static final String[] TTS_LANG_CODES = {"id", "en", "jv", "su", "ja", "ko"};
     public static volatile String tiktokUsername = "";
     public static volatile String ffmpegPath = "";
     public static volatile String ytDlpPath = "";
@@ -43,6 +50,9 @@ public final class ClientSettings {
             shuffle = Boolean.parseBoolean(p.getProperty("shuffle", "false"));
             repeat = Boolean.parseBoolean(p.getProperty("repeat", "false"));
             ttsEnabled = Boolean.parseBoolean(p.getProperty("ttsEnabled", "true"));
+            ttsVolume = clampInt(parseInt(p.getProperty("ttsVolume"), 90), 0, 100);
+            ttsVoice = clampInt(parseInt(p.getProperty("ttsVoice"), 0), 0, TTS_VOICES.length - 1);
+            ttsLanguage = clampInt(parseInt(p.getProperty("ttsLanguage"), 0), 0, TTS_LANGS.length - 1);
             tiktokUsername = p.getProperty("tiktokUsername", "").trim();
             ffmpegPath = p.getProperty("ffmpegPath", "").trim();
             ytDlpPath = p.getProperty("ytDlpPath", "").trim();
@@ -64,6 +74,9 @@ public final class ClientSettings {
             p.setProperty("shuffle", Boolean.toString(shuffle));
             p.setProperty("repeat", Boolean.toString(repeat));
             p.setProperty("ttsEnabled", Boolean.toString(ttsEnabled));
+            p.setProperty("ttsVolume", Integer.toString(ttsVolume));
+            p.setProperty("ttsVoice", Integer.toString(ttsVoice));
+            p.setProperty("ttsLanguage", Integer.toString(ttsLanguage));
             p.setProperty("tiktokUsername", nz(tiktokUsername));
             p.setProperty("ffmpegPath", nz(ffmpegPath));
             p.setProperty("ytDlpPath", nz(ytDlpPath));

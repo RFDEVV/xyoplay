@@ -82,9 +82,16 @@ public final class TikTokLiveService {
                 if (in == null) throw new IllegalStateException("Script pembaca TikTok tidak ada di JAR");
                 Files.copy(in, script, StandardCopyOption.REPLACE_EXISTING);
             }
-            ProcessBuilder pb = new ProcessBuilder(python, "-u", script.toString(), clean, ClientSettings.ttsEnabled ? "tts" : "notts");
+            ProcessBuilder pb = new ProcessBuilder(python, "-u", script.toString(), clean,
+                    ClientSettings.ttsEnabled ? "tts" : "notts",
+                    String.valueOf(ClientSettings.ttsVolume),
+                    voiceKey(ClientSettings.ttsVoice),
+                    langKey(ClientSettings.ttsLanguage));
             pb.environment().put("PYTHONIOENCODING", "utf-8");
             pb.environment().put("PYTHONUTF8", "1");
+            pb.environment().put("XYOPLAY_TTS_VOL", String.valueOf(ClientSettings.ttsVolume));
+            pb.environment().put("XYOPLAY_TTS_VOICE", voiceKey(ClientSettings.ttsVoice));
+            pb.environment().put("XYOPLAY_TTS_LANG", langKey(ClientSettings.ttsLanguage));
             String key = ClientSettings.eulerApiKey;
             if (key != null && !key.isBlank()) pb.environment().put("XYOPLAY_EULER_KEY", key.trim());
             pb.redirectErrorStream(true);
@@ -118,9 +125,25 @@ public final class TikTokLiveService {
                         case "comment" -> {
                             String user = json.has("user") ? json.get("user").getAsString() : "penonton";
                             COMMENTS.add(new Comment(user, text));
-                            while (COMMENTS.size() > 200) COMMENTS.remove(0);
+                            while (COMMENTS.size() > 500) COMMENTS.remove(0);
                             total++;
                             status = "Komentar diterima: " + total;
+                        }
+                        case "follow" -> {
+                            String user = json.has("user") ? json.get("user").getAsString() : "penonton";
+                            COMMENTS.add(new Comment(user, text.isEmpty() ? "[FOLLOW] Sudah mem-follow!" : text));
+                            while (COMMENTS.size() > 500) COMMENTS.remove(0);
+                            total++;
+                            status = "Follow baru: @" + user;
+                        }
+                        case "gift" -> {
+                            String user = json.has("user") ? json.get("user").getAsString() : "penonton";
+                            String gift = json.has("gift") ? json.get("gift").getAsString() : "gift";
+                            int count = json.has("count") ? json.get("count").getAsInt() : 1;
+                            COMMENTS.add(new Comment(user, text.isEmpty() ? "[GIFT] Mengirim " + count + "x " + gift : text));
+                            while (COMMENTS.size() > 500) COMMENTS.remove(0);
+                            total++;
+                            status = "Gift baru: " + count + "x " + gift + " dari @" + user;
                         }
                         default -> { }
                     }
@@ -134,6 +157,44 @@ public final class TikTokLiveService {
         if (generation.get() == myGeneration && exit != 0 && lastLine.isBlank()) {
             status = "Pembaca LIVE berhenti (kode " + exit + "). Lihat config/xyoplay/tiktok.log";
         } else if (generation.get() == myGeneration && exit == 0 && lastLine.isBlank()) status = "Pembaca LIVE berhenti";
+    }
+
+    public static String voiceKey(int index) {
+        if (index >= 0 && index < ClientSettings.TTS_VOICE_KEYS.length) return ClientSettings.TTS_VOICE_KEYS[index];
+        return "google";
+    }
+
+    public static String langKey(int index) {
+        if (index >= 0 && index < ClientSettings.TTS_LANG_CODES.length) return ClientSettings.TTS_LANG_CODES[index];
+        return "id";
+    }
+
+    public static void sendConfig() {
+        Process p = process;
+        if (p == null || !p.isAlive()) return;
+        try {
+            var out = p.getOutputStream();
+            String json = String.format(java.util.Locale.ROOT,
+                    "{\"cmd\":\"config\",\"tts\":%b,\"volume\":%d,\"voice\":\"%s\",\"lang\":\"%s\"}\n",
+                    ClientSettings.ttsEnabled, ClientSettings.ttsVolume,
+                    voiceKey(ClientSettings.ttsVoice), langKey(ClientSettings.ttsLanguage));
+            out.write(json.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        } catch (Exception ignored) {}
+    }
+
+    public static void clearComments() {
+        COMMENTS.clear();
+        total = 0;
+        status = "Histori komentar dibersihkan";
+        Process p = process;
+        if (p != null && p.isAlive()) {
+            try {
+                var out = p.getOutputStream();
+                out.write("{\"cmd\":\"clear\"}\n".getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            } catch (Exception ignored) {}
+        }
     }
 
     public static void stop() {
