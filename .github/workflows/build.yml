@@ -1,0 +1,30 @@
+name: Build XYOPlay Client
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.0'
+      - name: Build mod
+        run: gradle --no-daemon clean build
+      - name: Upload mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: XYOPlay-Client-26.1.2
+          path: build/libs/XYOPlay-Client-2.6.0-client.jar
+          if-no-files-found: error
