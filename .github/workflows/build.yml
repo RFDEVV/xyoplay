@@ -26,5 +26,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: XYOPlay-Client-26.1.2
-          path: build/libs/XYOPlay-Client-2.6.0-client.jar
+          path: build/libs/*.jar
           if-no-files-found: error

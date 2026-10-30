@@ -24,6 +24,10 @@ import java.util.Locale;
 public final class MusicScreen extends Screen {
     private final Screen parent;
 
+    private static final int TTS_FIXED = 13;
+    private int ttsTarget;   // 0 = suara penonton LIVE, 1 = suara chat sendiri
+    private static final String TTS_SAMPLE = "Halo semuanya, ini tes suara. Terima kasih sudah menonton.";
+
     private enum Mode {
         LOCAL("Pustaka", "Pustaka lokal", "Koleksi audio di perangkatmu", 0),
         YOUTUBE("YouTube", "Cari YouTube", "Cari lagu lalu klik hasilnya untuk mengunduh audio", 1),
@@ -31,6 +35,18 @@ public final class MusicScreen extends Screen {
         SPOTIFY("Spotify", "Cari Spotify", "Cari lagu lalu klik hasilnya untuk mengunduh audionya", 11),
         LINK("Link", "Unduh via link", "Unduh audio dari link YouTube atau TikTok", 3),
         LIVE("LIVE", "TikTok LIVE", "Bacakan komentar LIVE dengan TTS lokal gratis", 4),
+        TTS("Suara", "Suara & TTS", "Pilih suara gratis, atur volume, kecepatan, dan mode chat jadi suara", 12),
+        ACTIONS("Aksi", "Aksi & Chaos", "Follow, gift, dan komentar memunculkan mob, TNT, item, dan efek", 13),
+        GIFTS("Gift", "Katalog gift", "Nama, harga koin, dan hadiah tiap gift", 19),
+        GIVEAWAY("Undian", "Undian penonton", "Penonton komentar kata kunci untuk ikut, lalu undi pemenang", 20),
+        PHRASES("Frasa", "Frasa cepat", "Klik untuk membacakan kalimat siap pakai lewat TTS LIVE", 21),
+        BOT("Bot", "Bot & AFK", "Asisten otomatis: ikut, tambang, buat alat, bangun base, dan mode AFK", 22),
+        SFX("Efek", "Efek suara", "Suara seru saat follow, gift, tap, target, dan undian (bisa diganti dengan sound meme kamu)", 12),
+        MONITOR("Monitor", "Monitor event", "Hasil tiap gift/follow: antre, berhasil, atau gagal", 18),
+        FILTER("Filter", "Filter kata kasar", "Kata di daftar ini tidak dibacakan dan disensor jadi ***", 14),
+        BANNED("Ban", "Akun diblokir", "Komentar, follow, dan gift dari akun ini diabaikan sepenuhnya", 15),
+        STATS("Statistik", "Statistik LIVE", "Ringkasan penonton, gift, dan peringkat pengirim gift", 16),
+        WAYPOINTS("Titik", "Titik & koordinat", "Simpan lokasi, pandu arah, dan penanda tempat mati", 17),
         SETTINGS("Setelan", "Pengaturan", "HUD, pemutaran, dan pintasan", 5),
         TOOLS("Alat", "Alat & proses", "Kelola FFmpeg, yt-dlp, dan diagnostik", 6),
         QUEUE("Antrean", "Antrean lagu", "Lagu berikutnya diputar sesuai urutan antrean", 7),
@@ -89,7 +105,7 @@ public final class MusicScreen extends Screen {
         clampScroll();
     }
 
-    private boolean hasField() { return mode == Mode.LOCAL || mode == Mode.YOUTUBE || mode == Mode.TIKTOK || mode == Mode.SPOTIFY || mode == Mode.LINK || mode == Mode.LIVE || (mode == Mode.PLAYLISTS && selectedPlaylist == null); }
+    private boolean hasField() { return mode == Mode.LOCAL || mode == Mode.YOUTUBE || mode == Mode.TIKTOK || mode == Mode.SPOTIFY || mode == Mode.LINK || mode == Mode.LIVE || mode == Mode.FILTER || mode == Mode.BANNED || mode == Mode.ACTIONS || mode == Mode.GIVEAWAY || mode == Mode.PHRASES || mode == Mode.BOT || mode == Mode.WAYPOINTS || (mode == Mode.PLAYLISTS && selectedPlaylist == null); }
     private String text() { return texts.getOrDefault(mode, ""); }
     private void text(String value) { texts.put(mode, value); if (mode == Mode.LOCAL && !editingMetadata) { filterVisible(); scroll = 0; } }
 
@@ -108,6 +124,8 @@ public final class MusicScreen extends Screen {
         cursorPos = text().length();
     }
 
+    private void clearField() { texts.put(mode, ""); cursorPos = 0; inputScroll = 0; allSelected = false; }
+
     private void notice(String message) { notice = message; noticeUntil = System.currentTimeMillis() + 3200; }
 
     // ---------------------------------------------------------------- list model
@@ -120,7 +138,19 @@ public final class MusicScreen extends Screen {
             case SPOTIFY -> YoutubeService.results(YoutubeService.Source.SPOTIFY).size();
             case LINK -> 2;
             case LIVE -> 3 + Math.max(1, TikTokLiveService.comments().size());
-            case SETTINGS -> 14;
+            case SETTINGS -> 28;
+            case TTS -> TTS_FIXED + TtsCatalog.VOICES.size();
+            case ACTIONS -> 17 + Math.max(1, LiveActions.triggers().size());
+            case GIFTS -> 1 + Math.max(1, GiftBook.entries().size());
+            case GIVEAWAY -> 4 + Math.max(1, Giveaway.winners().size());
+            case PHRASES -> 1 + phrases().size();
+            case BOT -> 30 + Math.max(1, Bots.BOTS.size() + (Bots.afk != null ? 1 : 0));
+            case SFX -> 3 + MemeSounds.KINDS.size();
+            case MONITOR -> 1 + Math.max(1, LiveActions.log().size());
+            case FILTER -> 4 + Math.max(1, LiveFilter.words().size());
+            case BANNED -> 1 + Math.max(1, LiveFilter.banned().size());
+            case STATS -> 3 + Math.max(1, TikTokLiveService.topGifters(10).size());
+            case WAYPOINTS -> 3 + Math.max(1, Waypoints.points().size());
             case TOOLS -> 4;
             case QUEUE -> MusicLibraryData.queued().size();
             case FAVORITES -> MusicLibraryData.favorites().size();
@@ -137,7 +167,19 @@ public final class MusicScreen extends Screen {
             case LINK -> i == 0 ? 54 : 50;
             case LIVE -> i == 0 ? 62 : i == 1 ? 46 : i == 2 ? 42 : 26;
             case SETTINGS -> 42;
-            case TOOLS -> i >= 2 ? 60 : 42;
+            case TTS -> i < TTS_FIXED ? 42 : 24;
+            case ACTIONS -> i == 11 ? 52 : i >= 17 ? 28 : 42;
+            case GIFTS -> i == 0 ? 44 : 32;
+            case GIVEAWAY -> i < 4 ? 42 : 26;
+            case PHRASES -> i == 0 ? 44 : 28;
+            case BOT -> i == 0 ? 58 : i == 24 ? 26 : i >= 30 ? 32 : 42;
+            case SFX -> i == 2 ? 58 : i < 2 ? 42 : 32;
+            case MONITOR -> i == 0 ? 44 : 32;
+            case FILTER -> i >= 4 ? 26 : 42;
+            case BANNED -> i == 0 ? 42 : 26;
+            case STATS -> i == 0 ? 50 : i == 1 ? 40 : i == 2 ? 24 : 26;
+            case WAYPOINTS -> i == 0 ? 42 : i < 3 ? 42 : 32;
+            case TOOLS -> i == 3 ? 72 : i >= 2 ? 60 : 42;
         };
     }
 
@@ -273,6 +315,12 @@ public final class MusicScreen extends Screen {
             case YOUTUBE, TIKTOK, SPOTIFY -> "Cari";
             case LINK -> "Unduh";
             case LIVE -> "Simpan";
+            case FILTER, ACTIONS -> "Tambah";
+            case BANNED -> "Ban";
+            case GIVEAWAY -> "Atur kata";
+            case BOT -> "Skin";
+            case PHRASES -> "Tambah";
+            case WAYPOINTS -> "Simpan";
             case PLAYLISTS -> selectedPlaylist == null ? "Buat" : "Kembali";
             default -> null;
         };
@@ -306,6 +354,51 @@ public final class MusicScreen extends Screen {
             case SPOTIFY -> { scroll = 0; YoutubeService.search(YoutubeService.Source.SPOTIFY, text()); }
             case LINK -> YoutubeService.downloadUrl(text(), MusicLibrary.folder());
             case LIVE -> { ClientSettings.tiktokUsername = text().trim().replaceFirst("^@", ""); ClientSettings.save(); notice("Username LIVE disimpan"); }
+            case FILTER -> {
+                int added = 0;
+                for (String part : text().split("[,\\n]")) if (LiveFilter.addWord(part)) added++;
+                clearField();
+                notice(added > 0 ? added + " kata ditambahkan ke filter" : "Tidak ada kata baru (kosong atau sudah ada)");
+            }
+            case BANNED -> {
+                int added = 0;
+                for (String part : text().split("[,\\n]")) {
+                    if (LiveFilter.ban(part)) { added++; TikTokLiveService.purgeUser(LiveFilter.normalizeUser(part)); }
+                }
+                clearField();
+                notice(added > 0 ? added + " akun diblokir" : "Username kosong, tidak valid, atau sudah diblokir");
+            }
+            case ACTIONS -> {
+                String result = LiveActions.add(text());
+                if (result.startsWith("OK:")) clearField();
+                notice(result);
+            }
+            case BOT -> {
+                String n = text().strip();
+                if (!n.matches("[A-Za-z0-9_]{3,16}")) { notice("Nama akun Minecraft: 3–16 huruf/angka/_"); return; }
+                ClientSettings.botSkinName = n; ClientSettings.botSkin = Bots.SKINS.length - 1; ClientSettings.save(); clearField();
+                Bots.refreshLook(); notice("Skin bot: " + n + " (butuh internet untuk mengambil skin)");
+            }
+            case GIVEAWAY -> {
+                String w = text().strip().toLowerCase();
+                if (!w.startsWith("!")) w = "!" + w;
+                if (!w.matches("![a-z0-9_]{1,24}")) { notice("Kata harus huruf/angka, mis. !ikut"); return; }
+                ClientSettings.giveawayWord = w; ClientSettings.save(); clearField();
+                notice("Kata undian: " + w);
+            }
+            case PHRASES -> {
+                String p = text().strip().replace("|", " ");
+                if (p.isEmpty()) { notice("Ketik kalimatnya dulu"); return; }
+                if (p.length() > 140) p = p.substring(0, 140);
+                ClientSettings.quickPhrases = ClientSettings.quickPhrases.isEmpty() ? p : ClientSettings.quickPhrases + "|" + p;
+                ClientSettings.save(); clearField();
+                notice("Frasa disimpan");
+            }
+            case WAYPOINTS -> {
+                Waypoints.Point point = Waypoints.addHere(text());
+                if (point == null) notice("Masuk ke dunia dulu untuk menyimpan titik");
+                else { clearField(); notice("Titik \"" + point.name() + "\" disimpan di " + Waypoints.coords(point)); }
+            }
             case PLAYLISTS -> {
                 if (selectedPlaylist == null) {
                     String name = text().trim();
@@ -329,12 +422,22 @@ public final class MusicScreen extends Screen {
         int btnW = label == null ? 0 : Math.max(50, font.width(label) + 22);
         if (!compact) {
             g.text(font, editingMetadata ? "Edit metadata" : mode.title, cx, py + 13, Ui.TEXT, false);
-            g.text(font, Ui.fit(font, editingMetadata ? "Isi judul dan artis dipisahkan dengan |" : mode.subtitle, cw - btnW - 12 - (mode == Mode.TIKTOK ? 100 : mode == Mode.LOCAL && !editingMetadata ? 64 : 0)), cx, py + 26, Ui.MUTED, false);
+            g.text(font, Ui.fit(font, editingMetadata ? "Isi judul dan artis dipisahkan dengan |" : mode.subtitle, cw - btnW - 12 - (isResultMode() ? 74 : 0) - (mode == Mode.TIKTOK ? 100 : mode == Mode.LOCAL && !editingMetadata ? 64 : 0)), cx, py + 26, Ui.MUTED, false);
             int by = py + 10;
             if (label != null) {
                 button(g, cx + cw - btnW, by, btnW, 22, label, true, mx, my, this::doAction);
                 if (mode == Mode.LOCAL && !editingMetadata) button(g, cx + cw - btnW - 64, by, 60, 22, "Folder", false, mx, my, this::openFolder);
-                if (mode == Mode.TIKTOK) button(g, cx + cw - btnW - 100, by, 96, 22, "Urut: " + YoutubeService.tiktokSortLabel(), false, mx, my,
+                int extra = 0;
+                if (isResultMode()) {
+                    extra = 74;
+                    final YoutubeService.Source src = mode == Mode.TIKTOK ? YoutubeService.Source.TIKTOK : mode == Mode.SPOTIFY ? YoutubeService.Source.SPOTIFY : YoutubeService.Source.YOUTUBE;
+                    button(g, cx + cw - btnW - extra, by, 70, 22, "Putar #1", false, mx, my, () -> {
+                        scroll = 0;
+                        YoutubeService.search(src, text(), true);
+                        notice("Mencari lalu memutar hasil teratas…");
+                    });
+                }
+                if (mode == Mode.TIKTOK) button(g, cx + cw - btnW - extra - 100, by, 96, 22, "Urut: " + YoutubeService.tiktokSortLabel(), false, mx, my,
                         () -> notice("Urutan TikTok: " + YoutubeService.cycleTikTokSort()));
             }
             if (hasField()) field(g, cx, py + 40, cw, 22, mx, my);
@@ -390,6 +493,13 @@ public final class MusicScreen extends Screen {
             case SPOTIFY -> "Judul lagu atau artis…";
             case LINK -> "https://www.youtube.com/watch?v=… atau link TikTok";
             case LIVE -> "Username TikTok LIVE (tanpa @ juga boleh)";
+            case FILTER -> "Kata kasar (pisahkan dengan koma)…";
+            case BANNED -> "Username TikTok yang diblokir (tanpa @)";
+            case GIVEAWAY -> "Kata untuk ikut undian, mis. !ikut";
+            case BOT -> "Nama akun Minecraft untuk skin bot (mis. Notch)";
+            case PHRASES -> "Kalimat baru untuk disimpan (dibacakan lewat suara chat sendiri)";
+            case ACTIONS -> "pemicu=mob   contoh: follow=zombie · mawar=creeper*2";
+            case WAYPOINTS -> "Nama titik (kosongkan = otomatis)";
             case PLAYLISTS -> "Nama playlist baru…";
             default -> "";
         };
@@ -470,6 +580,18 @@ public final class MusicScreen extends Screen {
             case LINK -> drawLinkCard(g, i, x, y, w, h);
             case LIVE -> drawLive(g, i, x, y, w, h, mx, my);
             case SETTINGS -> drawSettings(g, i, x, y, w, h, mx, my);
+            case TTS -> drawTts(g, i, x, y, w, h, mx, my);
+            case ACTIONS -> drawActions(g, i, x, y, w, h, mx, my);
+            case GIFTS -> drawGifts(g, i, x, y, w, h, mx, my);
+            case GIVEAWAY -> drawGiveaway(g, i, x, y, w, h, mx, my);
+            case PHRASES -> drawPhrases(g, i, x, y, w, h, mx, my);
+            case BOT -> drawBot(g, i, x, y, w, h, mx, my);
+            case SFX -> drawSfx(g, i, x, y, w, h, mx, my);
+            case MONITOR -> drawMonitor(g, i, x, y, w, h, mx, my);
+            case FILTER -> drawFilter(g, i, x, y, w, h, mx, my);
+            case BANNED -> drawBanned(g, i, x, y, w, h, mx, my);
+            case STATS -> drawStats(g, i, x, y, w, h, mx, my);
+            case WAYPOINTS -> drawWaypoints(g, i, x, y, w, h, mx, my);
             case TOOLS -> drawTools(g, i, x, y, w, h, mx, my);
         }
     }
@@ -635,12 +757,13 @@ public final class MusicScreen extends Screen {
             Ui.box(g, x, y, w, h - 4, 5, Ui.CARD, Ui.BORDER);
             String user = ClientSettings.tiktokUsername == null || ClientSettings.tiktokUsername.isBlank() ? "username belum diatur" : "@" + ClientSettings.tiktokUsername;
             String total = TikTokLiveService.totalComments() > 0 ? " · " + TikTokLiveService.totalComments() + " pesan" : "";
-            g.text(font, Ui.fit(font, (on ? "AKTIF" : "SIAP") + " · " + user + total, w - 20), x + 10, y + 8, on ? Ui.OK : Ui.MUTED, false);
+            g.text(font, Ui.fit(font, (on ? "AKTIF" : "SIAP") + " · " + user + total + " · Aksi " + (ClientSettings.actionsEnabled ? "ON" : "OFF"), w - 20), x + 10, y + 8, on ? Ui.OK : Ui.MUTED, false);
             g.text(font, Ui.fit(font, TikTokLiveService.status(), w - 20), x + 10, y + 21, Ui.TEXT, false);
             int bw = Math.min(84, (w - 20 - 12) / 4), by = y + 35;
             button(g, x + 10, by, bw, 18, "Mulai LIVE", true, mx, my, () -> {
                 ClientSettings.tiktokUsername = text().trim().replaceFirst("^@", ""); ClientSettings.save();
-                TikTokLiveService.start(ClientSettings.tiktokUsername); notice("Memulai pembaca TikTok LIVE");
+                TikTokLiveService.start(ClientSettings.tiktokUsername);
+                notice(!ClientSettings.actionsEnabled ? "LIVE dimulai · Aksi mob MATI (nyalakan di tab Aksi)" : !McCompat.inWorld() ? "LIVE dimulai · masuk dunia dulu agar aksi berjalan" : "Memulai pembaca TikTok LIVE");
             });
             button(g, x + 14 + bw, by, bw, 18, "Stop LIVE", false, mx, my, () -> { TikTokLiveService.stop(); notice("Pembaca TikTok LIVE dihentikan"); });
             button(g, x + 18 + bw * 2, by, bw, 18, ClientSettings.ttsEnabled ? "TTS: ON" : "TTS: OFF", false, mx, my, () -> {
@@ -654,41 +777,22 @@ public final class MusicScreen extends Screen {
             });
         } else if (i == 1) {
             Ui.box(g, x, y, w, h - 4, 5, Ui.CARD, Ui.BORDER);
-            g.text(font, "Pengaturan TTS LIVE (Volume, Suara, Bahasa)", x + 10, y + 6, Ui.TEXT, false);
+            g.text(font, Ui.fit(font, "Suara: " + TtsCatalog.byKey(ClientSettings.ttsVoiceKey).label(), w - 20), x + 10, y + 6, Ui.TEXT, false);
             int sbw = Math.min(96, (w - 20 - 8) / 3), sby = y + 20;
-            // Button Vol
             button(g, x + 10, sby, sbw, 18, "Vol: " + ClientSettings.ttsVolume + "%", false, mx, my, () -> {
-                int[] vols = {30, 50, 70, 80, 90, 100};
-                int next = 90;
-                for (int idx = 0; idx < vols.length; idx++) {
-                    if (vols[idx] == ClientSettings.ttsVolume) {
-                        next = vols[(idx + 1) % vols.length];
-                        break;
-                    }
-                }
+                int[] vols = {50, 80, 100, 150, 200, 250, 300};
+                int next = 100;
+                for (int idx = 0; idx < vols.length; idx++) if (vols[idx] > ClientSettings.ttsVolume) { next = vols[idx]; break; }
+                if (ClientSettings.ttsVolume >= 300) next = 50;
                 ClientSettings.ttsVolume = next;
                 ClientSettings.save();
                 TikTokLiveService.sendConfig();
                 notice("Volume TTS: " + ClientSettings.ttsVolume + "%");
             });
-            // Button Voice
-            String voiceLabel = ClientSettings.ttsVoice == 0 ? "Google (Pr)" : "Sistem";
-            button(g, x + 14 + sbw, sby, sbw, 18, "Suara: " + voiceLabel, false, mx, my, () -> {
-                ClientSettings.ttsVoice = (ClientSettings.ttsVoice + 1) % ClientSettings.TTS_VOICES.length;
-                ClientSettings.save();
-                TikTokLiveService.sendConfig();
-                notice("Suara TTS: " + ClientSettings.TTS_VOICES[ClientSettings.ttsVoice]);
-            });
-            // Button Lang
-            String langLabel = ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage];
-            button(g, x + 18 + sbw * 2, sby, sbw, 18, "Bahasa: " + langLabel, false, mx, my, () -> {
-                ClientSettings.ttsLanguage = (ClientSettings.ttsLanguage + 1) % ClientSettings.TTS_LANGS.length;
-                ClientSettings.save();
-                TikTokLiveService.sendConfig();
-                notice("Bahasa TTS: " + ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage]);
-            });
+            button(g, x + 14 + sbw, sby, sbw, 18, "Ganti suara", false, mx, my, () -> setMode(Mode.TTS));
+            button(g, x + 18 + sbw * 2, sby, sbw, 18, "Tes suara", true, mx, my, () -> { TikTokLiveService.speak(TTS_SAMPLE, 0); notice("Memutar tes suara…"); });
         } else if (i == 2) {
-            actionCard(g, x, y, w, h, mx, my, "Paket Python untuk LIVE", "Pasang TikTokLive + pyttsx3 lewat pip (butuh internet)",
+            actionCard(g, x, y, w, h, mx, my, "Paket Python untuk LIVE", "Pasang TikTokLive + edge-tts (suara Microsoft) + pyttsx3 lewat pip",
                     TikTokLiveService.isInstalling() ? "Memasang…" : "Instal paket",
                     () -> { TikTokLiveService.installPackages(); notice("Memasang paket Python… lihat status di atas"); });
         } else {
@@ -697,14 +801,26 @@ public final class MusicScreen extends Screen {
             int ty = y + (h - 2 - 8) / 2;
             if (comments.isEmpty()) { g.text(font, Ui.fit(font, "Komentar, follow, dan gift akan tampil di sini saat LIVE tersambung.", w - 16), x + 8, ty, Ui.DIM, false); return; }
             TikTokLiveService.Comment c = comments.get(Math.min(comments.size() - 1, i - 3));
+            boolean canBan = !c.uid().isBlank();
+            int banW = canBan ? 34 : 0;
             String user = Ui.fit(font, c.user(), w / 3);
-            boolean isGift = c.text().startsWith("[GIFT]");
-            boolean isFollow = c.text().startsWith("[FOLLOW]");
-            int userCol = isGift ? 0xFFFFD700 : (isFollow ? Ui.OK : Ui.ACCENT);
-            int textCol = isGift ? 0xFFFFEA75 : (isFollow ? 0xFFA5D6A7 : Ui.TEXT);
+            String kind = c.kind();
+            boolean isGift = "gift".equals(kind) || c.text().startsWith("[GIFT]");
+            boolean isFollow = "follow".equals(kind) || c.text().startsWith("[FOLLOW]");
+            boolean isOther = "share".equals(kind) || "subscribe".equals(kind) || "join".equals(kind);
+            int userCol = isGift ? 0xFFFFD700 : isFollow ? Ui.OK : isOther ? 0xFFC4B5FD : Ui.ACCENT;
+            int textCol = isGift ? 0xFFFFEA75 : isFollow ? 0xFFA5D6A7 : isOther ? 0xFFDDD6FE : Ui.TEXT;
             g.text(font, user, x + 8, ty, userCol, false);
             int ux = x + 8 + font.width(user) + 6;
-            g.text(font, Ui.fit(font, c.text(), w - (ux - x) - 8), ux, ty, textCol, false);
+            g.text(font, Ui.fit(font, c.text(), w - (ux - x) - 8 - banW), ux, ty, textCol, false);
+            if (canBan) {
+                final String uid = c.uid();
+                button(g, x + w - banW - 2, y + (h - 2 - 16) / 2, 32, 16, "Ban", false, mx, my, () -> {
+                    LiveFilter.ban(uid);
+                    TikTokLiveService.purgeUser(uid);
+                    notice("@" + uid + " diblokir. Komentarnya tidak ditampilkan lagi");
+                });
+            }
         }
     }
 
@@ -725,31 +841,12 @@ public final class MusicScreen extends Screen {
                     () -> { ClientSettings.shuffle = !ClientSettings.shuffle; ClientSettings.save(); });
             case 4 -> toggleCard(g, x, y, w, h, mx, my, "Ulangi lagu (repeat)", "Putar ulang lagu yang sama setelah selesai", ClientSettings.repeat,
                     () -> { ClientSettings.repeat = !ClientSettings.repeat; ClientSettings.save(); });
-            case 5 -> toggleCard(g, x, y, w, h, mx, my, "Bacakan komentar LIVE (TTS)", "Aktifkan atau matikan pembacaan suara LIVE", ClientSettings.ttsEnabled,
+            case 5 -> toggleCard(g, x, y, w, h, mx, my, "Bacakan komentar LIVE (TTS)", "Aktifkan atau matikan pembacaan suara komentar, follow, dan gift", ClientSettings.ttsEnabled,
                     () -> { ClientSettings.ttsEnabled = !ClientSettings.ttsEnabled; ClientSettings.save(); TikTokLiveService.sendConfig(); notice("TTS " + (ClientSettings.ttsEnabled ? "aktif" : "nonaktif")); });
-            case 6 -> actionCard(g, x, y, w, h, mx, my, "Volume TTS LIVE", "Tingkat kenyaringan suara pembaca komentar", ClientSettings.ttsVolume + "%",
-                    () -> {
-                        int[] vols = {30, 50, 70, 80, 90, 100};
-                        int next = 90;
-                        for (int idx = 0; idx < vols.length; idx++) {
-                            if (vols[idx] == ClientSettings.ttsVolume) {
-                                next = vols[(idx + 1) % vols.length];
-                                break;
-                            }
-                        }
-                        ClientSettings.ttsVolume = next;
-                        ClientSettings.save();
-                        TikTokLiveService.sendConfig();
-                        notice("Volume TTS: " + ClientSettings.ttsVolume + "%");
-                    });
-            case 7 -> actionCard(g, x, y, w, h, mx, my, "Suara Pemeran TTS", "Pilihan suara Google (Perempuan) atau Sistem", ClientSettings.TTS_VOICES[ClientSettings.ttsVoice],
-                    () -> {
-                        ClientSettings.ttsVoice = (ClientSettings.ttsVoice + 1) % ClientSettings.TTS_VOICES.length;
-                        ClientSettings.save();
-                        TikTokLiveService.sendConfig();
-                        notice("Suara TTS: " + ClientSettings.TTS_VOICES[ClientSettings.ttsVoice]);
-                    });
-            case 8 -> actionCard(g, x, y, w, h, mx, my, "Bahasa TTS LIVE", "Pilihan bahasa suara Google TTS", ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage],
+            case 6 -> stepperCard(g, x, y, w, h, mx, my, "Volume TTS", "100% sudah keras dan rata; naikkan sampai 300% bila masih pelan",
+                    ClientSettings.ttsVolume + "%", () -> changeVolume(-10), () -> changeVolume(10));
+            case 7 -> actionCard(g, x, y, w, h, mx, my, "Suara TTS", TtsCatalog.byKey(ClientSettings.ttsVoiceKey).label(), "Pilih suara", () -> setMode(Mode.TTS));
+            case 8 -> actionCard(g, x, y, w, h, mx, my, "Bahasa TTS LIVE", "Dipakai oleh suara Google dan kalimat ucapan terima kasih", ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage],
                     () -> {
                         ClientSettings.ttsLanguage = (ClientSettings.ttsLanguage + 1) % ClientSettings.TTS_LANGS.length;
                         ClientSettings.save();
@@ -765,7 +862,633 @@ public final class MusicScreen extends Screen {
             case 10 -> secretCard(g, x, y, w, h, mx, my, "Spotify Client ID", ClientSettings.spotifyClientId, v -> ClientSettings.spotifyClientId = v);
             case 11 -> secretCard(g, x, y, w, h, mx, my, "Spotify Client Secret", ClientSettings.spotifySecret, v -> ClientSettings.spotifySecret = v);
             case 12 -> secretCard(g, x, y, w, h, mx, my, "Euler Stream API key (LIVE, opsional)", ClientSettings.eulerApiKey, v -> ClientSettings.eulerApiKey = v);
+            case 13 -> toggleCard(g, x, y, w, h, mx, my, "Chat jadi suara", "Apa pun yang diketik di chat Minecraft dibacakan lewat TTS (/xyoplay tts on|off)", ClientSettings.chatTts,
+                    () -> { XYOPlayClient.setChatTts(!ClientSettings.chatTts); notice("Chat jadi suara " + (ClientSettings.chatTts ? "aktif" : "mati")); });
+            case 14 -> toggleCard(g, x, y, w, h, mx, my, "Kirim juga ke chat server", "Mati = hanya suara (pesan tidak dikirim ke chat)", ClientSettings.chatTtsSend,
+                    () -> { ClientSettings.chatTtsSend = !ClientSettings.chatTtsSend; ClientSettings.save(); });
+            case 15 -> toggleCard(g, x, y, w, h, mx, my, "Banner event LIVE", "Tampilkan follow, gift, dan share sebagai banner di layar game", ClientSettings.liveBanner,
+                    () -> { ClientSettings.liveBanner = !ClientSettings.liveBanner; ClientSettings.save(); });
+            case 16 -> toggleCard(g, x, y, w, h, mx, my, "Info koordinat di layar", "Tampilkan XYZ, arah mata angin, dan jarak ke titik yang dipandu", ClientSettings.infoHud,
+                    () -> { ClientSettings.infoHud = !ClientSettings.infoHud; ClientSettings.save(); });
+            case 17 -> toggleCard(g, x, y, w, h, mx, my, "Tandai lokasi mati", "Simpan titik \"Mati\" otomatis agar mudah mengambil barang", ClientSettings.deathMarker,
+                    () -> { ClientSettings.deathMarker = !ClientSettings.deathMarker; ClientSettings.save(); });
+            case 18 -> toggleCard(g, x, y, w, h, mx, my, "Putar otomatis setelah unduh", "Lagu dari hasil pencarian langsung diputar begitu selesai diunduh", ClientSettings.autoPlayDownloads,
+                    () -> { ClientSettings.autoPlayDownloads = !ClientSettings.autoPlayDownloads; ClientSettings.save(); });
+            case 19 -> toggleCard(g, x, y, w, h, mx, my, "Penanda peta (pin) di layar", "Titik yang dipandu (termasuk lokasi mati) tampil sebagai pin yang terlihat dari jauh", ClientSettings.markerShow,
+                    () -> { ClientSettings.markerShow = !ClientSettings.markerShow; ClientSettings.save(); });
+            case 20 -> toggleCard(g, x, y, w, h, mx, my, "Hapus penanda saat sampai", "Pin hilang otomatis dalam 5 blok; titik Mati ikut dihapus", ClientSettings.markerClearOnArrive,
+                    () -> { ClientSettings.markerClearOnArrive = !ClientSettings.markerClearOnArrive; ClientSettings.save(); });
+            case 21 -> actionCard(g, x, y, w, h, mx, my, "Posisi kartu koordinat", "Sudut layar untuk kartu XYZ / kompas / jarak", CORNER_NAMES[ClientSettings.infoCorner],
+                    () -> { ClientSettings.infoCorner = (ClientSettings.infoCorner + 1) % 4; ClientSettings.save(); notice("Kartu koordinat: " + CORNER_NAMES[ClientSettings.infoCorner]); });
+            case 24 -> toggleCard(g, x, y, w, h, mx, my, "Panel LIVE di layar", "Top gifter dan bar target follow di sisi kanan layar", ClientSettings.liveHud,
+                    () -> { ClientSettings.liveHud = !ClientSettings.liveHud; ClientSettings.save(); });
+            case 25 -> toggleCard(g, x, y, w, h, mx, my, "Judul besar di layar", "Nama penonton muncul besar saat gift besar, tap event, dan target tercapai", ClientSettings.bigTitle,
+                    () -> { ClientSettings.bigTitle = !ClientSettings.bigTitle; ClientSettings.save(); });
+            case 26 -> stepperCard(g, x, y, w, h, mx, my, "Target follower", "Kelipatan target dari follower ASLI akunmu (diambil saat LIVE mulai); 0 = mati", ClientSettings.goalStep == 0 ? "mati" : Integer.toString(ClientSettings.goalStep),
+                    () -> { ClientSettings.goalStep = Math.max(0, ClientSettings.goalStep - (ClientSettings.goalStep > 1000 ? 500 : 100)); ClientSettings.save(); },
+                    () -> { ClientSettings.goalStep = Math.min(1000000, ClientSettings.goalStep + (ClientSettings.goalStep >= 1000 ? 500 : 100)); ClientSettings.save(); });
+            case 27 -> stepperCard(g, x, y, w, h, mx, my, "Batas command di server", "Command per detik saat bermain di server (terlalu tinggi = dikick anti-spam). Dunia sendiri tidak terbatas", ClientSettings.mpCmdRate + "/dtk",
+                    () -> { ClientSettings.mpCmdRate = Math.max(1, ClientSettings.mpCmdRate - 1); ClientSettings.save(); },
+                    () -> { ClientSettings.mpCmdRate = Math.min(10, ClientSettings.mpCmdRate + 1); ClientSettings.save(); });
+            case 22 -> toggleCard(g, x, y, w, h, mx, my, "Foto profil di banner", "Tampilkan foto profil penonton yang follow / kirim gift", ClientSettings.bannerAvatar,
+                    () -> { ClientSettings.bannerAvatar = !ClientSettings.bannerAvatar; ClientSettings.save(); });
             default -> actionCard(g, x, y, w, h, mx, my, "Folder musik lokal", "Buka folder untuk menambah file audio", "Buka folder", this::openFolder);
+        }
+    }
+
+    private void changeVolume(int delta) {
+        ClientSettings.ttsVolume = Math.max(10, Math.min(300, ClientSettings.ttsVolume + delta));
+        ClientSettings.save();
+        TikTokLiveService.sendConfig();
+        notice("Volume TTS: " + ClientSettings.ttsVolume + "%");
+    }
+
+    // ------------------------------------------------------------- new tabs
+
+    /** A row with a title, a description and a  [-] value [+]  control. */
+    private void stepperCard(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my, String title, String desc, String value, Runnable minus, Runnable plus) {
+        Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+        int bw = 24, vw = Math.max(44, font.width(value) + 12), by = y + (h - 2 - 20) / 2;
+        int right = x + w - 8;
+        int plusX = right - bw, valX = plusX - 4 - vw, minusX = valX - 4 - bw;
+        g.text(font, Ui.fit(font, title, minusX - x - 16), x + 10, y + 8, Ui.TEXT, false);
+        g.text(font, Ui.fit(font, desc, minusX - x - 16), x + 10, y + 21, Ui.MUTED, false);
+        button(g, minusX, by, bw, 20, "-", false, mx, my, minus);
+        Ui.rect(g, valX, by, vw, 20, 5, Ui.TRACK);
+        g.text(font, value, valX + (vw - font.width(value)) / 2, by + 6, Ui.TEXT, false);
+        button(g, plusX, by, bw, 20, "+", false, mx, my, plus);
+    }
+
+    private void emptyRow(GuiGraphicsExtractor g, int x, int y, int w, int h, String message) {
+        Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
+        g.text(font, Ui.fit(font, message, w - 16), x + 8, y + (h - 2 - 8) / 2, Ui.DIM, false);
+    }
+
+    private void drawTts(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        if (i >= TTS_FIXED) {
+            TtsCatalog.Voice v = TtsCatalog.VOICES.get(i - TTS_FIXED);
+            boolean selected = v.key().equals(ttsKey()), hover = Ui.in(mx, my, x, y, w, h - 2);
+            Ui.rect(g, x, y, w, h - 2, 5, selected ? Ui.CARD_ACTIVE : hover ? Ui.CARD_HOVER : Ui.CARD);
+            if (selected) g.fill(x, y + 4, x + 2, y + h - 6, Ui.ACCENT);
+            int ty = y + (h - 2 - 8) / 2;
+            int groupW = font.width(v.group());
+            g.text(font, Ui.fit(font, v.label(), w - groupW - 30), x + 10, ty, selected ? Ui.ACCENT : Ui.TEXT, false);
+            g.text(font, v.group(), x + w - groupW - 10, ty, Ui.DIM, false);
+            hit(x, y, w, h - 2, () -> {
+                if (ttsTarget == 0) ClientSettings.ttsVoiceKey = v.key(); else ClientSettings.chatVoiceKey = v.key();
+                ClientSettings.save();
+                TikTokLiveService.sendConfig();
+                TikTokLiveService.speak("Halo, ini suara " + v.label().split(" · ")[0] + ". Terima kasih sudah menonton.", 0, ttsTarget == 1);
+                notice("Suara dipilih: " + v.label());
+            });
+            return;
+        }
+        switch (i) {
+            case 0 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Atur suara untuk", 110), x + 10, y + 8, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, ttsTarget == 0 ? "Penonton LIVE: komentar, follow, gift" : "Chat sendiri: yang kamu ketik di Minecraft", w - 260), x + 10, y + 21, Ui.MUTED, false);
+                int by = y + (h - 2 - 20) / 2;
+                button(g, x + w - 8 - 112, by, 112, 20, "Chat sendiri", ttsTarget == 1, mx, my, () -> { ttsTarget = 1; notice("Mengatur suara chat sendiri"); });
+                button(g, x + w - 8 - 112 - 4 - 112, by, 112, 20, "Penonton LIVE", ttsTarget == 0, mx, my, () -> { ttsTarget = 0; notice("Mengatur suara penonton"); });
+            }
+            case 1 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Suara: " + TtsCatalog.byKey(ttsKey()).label(), w - 190), x + 10, y + 8, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, "Edge butuh paket edge-tts (tab LIVE > Instal paket)", w - 190), x + 10, y + 21, Ui.MUTED, false);
+                int by = y + (h - 2 - 20) / 2;
+                button(g, x + w - 76, by, 68, 20, "Tes suara", true, mx, my, () -> { TikTokLiveService.speak(TTS_SAMPLE, 0, ttsTarget == 1); notice("Memutar tes suara…"); });
+                button(g, x + w - 76 - 72, by, 68, 20, "Diam", false, mx, my, () -> { TikTokLiveService.stopSpeaking(); notice("Suara dihentikan"); });
+            }
+            case 2 -> stepperCard(g, x, y, w, h, mx, my, "Volume", "100% sudah keras dan rata; naikkan sampai 300% bila masih pelan",
+                    (ttsTarget == 0 ? ClientSettings.ttsVolume : ClientSettings.chatVolume) + "%", () -> adjustVolume(-10), () -> adjustVolume(10));
+            case 3 -> stepperCard(g, x, y, w, h, mx, my, "Kecepatan bicara", "Lebih lambat = lebih jelas dan tidak belibet",
+                    signed(ttsTarget == 0 ? ClientSettings.ttsRate : ClientSettings.chatRate) + "%", () -> adjustRate(-5), () -> adjustRate(5));
+            case 4 -> stepperCard(g, x, y, w, h, mx, my, "Nada suara", "Hanya untuk suara Microsoft Edge",
+                    signed(ttsTarget == 0 ? ClientSettings.ttsPitch : ClientSettings.chatPitch) + " Hz", () -> adjustPitch(-5), () -> adjustPitch(5));
+            case 5 -> actionCard(g, x, y, w, h, mx, my, "Bahasa TTS", "Dipakai suara Google dan kalimat terima kasih", ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage],
+                    () -> {
+                        ClientSettings.ttsLanguage = (ClientSettings.ttsLanguage + 1) % ClientSettings.TTS_LANGS.length;
+                        ClientSettings.save(); TikTokLiveService.sendConfig();
+                        notice("Bahasa TTS: " + ClientSettings.TTS_LANGS[ClientSettings.ttsLanguage]);
+                    });
+            case 6 -> toggleCard(g, x, y, w, h, mx, my, "Sebut nama penonton", "\"Budi bilang, halo\" — mati: hanya isi komentar", ClientSettings.ttsReadNames,
+                    () -> { ClientSettings.ttsReadNames = !ClientSettings.ttsReadNames; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 7 -> toggleCard(g, x, y, w, h, mx, my, "Ucapkan terima kasih follow", "Dibacakan saat ada yang follow", ClientSettings.ttsReadFollow,
+                    () -> { ClientSettings.ttsReadFollow = !ClientSettings.ttsReadFollow; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 8 -> toggleCard(g, x, y, w, h, mx, my, "Ucapkan terima kasih gift", "Dibacakan saat ada gift (combo dibacakan sekali di akhir)", ClientSettings.ttsReadGift,
+                    () -> { ClientSettings.ttsReadGift = !ClientSettings.ttsReadGift; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 9 -> toggleCard(g, x, y, w, h, mx, my, "Ucapkan terima kasih share", "Dibacakan saat LIVE dibagikan", ClientSettings.ttsReadShare,
+                    () -> { ClientSettings.ttsReadShare = !ClientSettings.ttsReadShare; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 10 -> toggleCard(g, x, y, w, h, mx, my, "Sapa penonton yang masuk", "Bisa ramai di LIVE besar; default mati", ClientSettings.ttsReadJoin,
+                    () -> { ClientSettings.ttsReadJoin = !ClientSettings.ttsReadJoin; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 11 -> toggleCard(g, x, y, w, h, mx, my, "Chat jadi suara", "Ketik apa saja di chat Minecraft, langsung jadi suara (tanpa perlu LIVE)", ClientSettings.chatTts,
+                    () -> { XYOPlayClient.setChatTts(!ClientSettings.chatTts); notice("Chat jadi suara " + (ClientSettings.chatTts ? "aktif" : "mati")); });
+            default -> toggleCard(g, x, y, w, h, mx, my, "Kirim juga ke chat server", "Mati = hanya suara, pesan tidak muncul di chat server", ClientSettings.chatTtsSend,
+                    () -> { ClientSettings.chatTtsSend = !ClientSettings.chatTtsSend; ClientSettings.save(); });
+        }
+    }
+
+    private String ttsKey() { return ttsTarget == 0 ? ClientSettings.ttsVoiceKey : ClientSettings.chatVoiceKey; }
+    private static String signed(int v) { return (v > 0 ? "+" : "") + v; }
+
+    private void adjustVolume(int delta) {
+        if (ttsTarget == 0) ClientSettings.ttsVolume = Math.max(10, Math.min(300, ClientSettings.ttsVolume + delta));
+        else ClientSettings.chatVolume = Math.max(10, Math.min(300, ClientSettings.chatVolume + delta));
+        ClientSettings.save(); TikTokLiveService.sendConfig();
+        notice("Volume: " + (ttsTarget == 0 ? ClientSettings.ttsVolume : ClientSettings.chatVolume) + "%");
+    }
+
+    private void adjustRate(int delta) {
+        if (ttsTarget == 0) ClientSettings.ttsRate = Math.max(-50, Math.min(50, ClientSettings.ttsRate + delta));
+        else ClientSettings.chatRate = Math.max(-50, Math.min(50, ClientSettings.chatRate + delta));
+        ClientSettings.save(); TikTokLiveService.sendConfig();
+        notice("Kecepatan: " + (ttsTarget == 0 ? ClientSettings.ttsRate : ClientSettings.chatRate) + "%");
+    }
+
+    private void adjustPitch(int delta) {
+        if (ttsTarget == 0) ClientSettings.ttsPitch = Math.max(-50, Math.min(50, ClientSettings.ttsPitch + delta));
+        else ClientSettings.chatPitch = Math.max(-50, Math.min(50, ClientSettings.chatPitch + delta));
+        ClientSettings.save(); TikTokLiveService.sendConfig();
+        notice("Nada: " + (ttsTarget == 0 ? ClientSettings.ttsPitch : ClientSettings.chatPitch) + " Hz");
+    }
+
+    private void changeRate(int delta) {
+        ClientSettings.ttsRate = Math.max(-50, Math.min(50, ClientSettings.ttsRate + delta));
+        ClientSettings.save(); TikTokLiveService.sendConfig();
+        notice("Kecepatan: " + ClientSettings.ttsRate + "%");
+    }
+
+    private void changePitch(int delta) {
+        ClientSettings.ttsPitch = Math.max(-50, Math.min(50, ClientSettings.ttsPitch + delta));
+        ClientSettings.save(); TikTokLiveService.sendConfig();
+        notice("Nada: " + ClientSettings.ttsPitch + " Hz");
+    }
+
+    private long pendingClearUntil;
+
+    private void drawFilter(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        switch (i) {
+            case 0 -> toggleCard(g, x, y, w, h, mx, my, "Filter kata kasar", "Kata di daftar tidak dibacakan dan tampil sebagai ***", ClientSettings.filterEnabled,
+                    () -> { ClientSettings.filterEnabled = !ClientSettings.filterEnabled; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 1 -> toggleCard(g, x, y, w, h, mx, my, "Lewati seluruh komentar", "Aktif: komentar yang memuat kata kasar tidak dibacakan sama sekali", ClientSettings.filterSkipComment,
+                    () -> { ClientSettings.filterSkipComment = !ClientSettings.filterSkipComment; ClientSettings.save(); TikTokLiveService.sendConfig(); });
+            case 2 -> actionCard(g, x, y, w, h, mx, my, "Daftar bawaan (" + LiveFilter.words().size() + " kata di daftarmu)", "Tambahkan kata kasar umum Indonesia & Inggris; bisa dihapus satu per satu", "Muat bawaan",
+                    () -> notice(LiveFilter.addDefaults() + " kata ditambahkan"));
+            case 3 -> {
+                boolean confirm = System.currentTimeMillis() < pendingClearUntil;
+                actionCard(g, x, y, w, h, mx, my, "Kosongkan daftar", "Menghapus semua kata filter sekaligus", confirm ? "Yakin?" : "Kosongkan", () -> {
+                    if (System.currentTimeMillis() < pendingClearUntil) { LiveFilter.clearWords(); pendingClearUntil = 0; notice("Daftar filter dikosongkan"); }
+                    else { pendingClearUntil = System.currentTimeMillis() + 4000; notice("Klik Yakin? untuk menghapus semua kata"); }
+                });
+            }
+            default -> {
+                List<String> words = LiveFilter.words();
+                if (words.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada kata. Ketik di kolom atas lalu klik Tambah (pisahkan dengan koma)."); return; }
+                String word = words.get(Math.min(words.size() - 1, i - 4));
+                Ui.rect(g, x, y, w, h - 2, 5, Ui.in(mx, my, x, y, w, h - 2) ? Ui.CARD_HOVER : Ui.CARD);
+                g.text(font, Ui.fit(font, word, w - 70), x + 10, y + (h - 2 - 8) / 2, Ui.TEXT, false);
+                button(g, x + w - 46, y + (h - 2 - 16) / 2, 42, 16, "Hapus", false, mx, my, () -> { LiveFilter.removeWord(word); notice("Dihapus dari filter: " + word); });
+            }
+        }
+    }
+
+    private void drawBanned(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        if (i == 0) {
+            Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+            g.text(font, Ui.fit(font, "Akun diblokir: " + LiveFilter.banned().size(), w - 20), x + 10, y + 8, Ui.TEXT, false);
+            g.text(font, Ui.fit(font, "Ban juga bisa dari tab LIVE (tombol Ban di tiap komentar) atau /xyoplay ban <akun>", w - 20), x + 10, y + 21, Ui.MUTED, false);
+            return;
+        }
+        List<String> banned = LiveFilter.banned();
+        if (banned.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada akun diblokir. Ketik username lalu klik Ban."); return; }
+        String user = banned.get(Math.min(banned.size() - 1, i - 1));
+        Ui.rect(g, x, y, w, h - 2, 5, Ui.in(mx, my, x, y, w, h - 2) ? Ui.CARD_HOVER : Ui.CARD);
+        g.text(font, Ui.fit(font, "@" + user, w - 100), x + 10, y + (h - 2 - 8) / 2, Ui.BAD, false);
+        button(g, x + w - 76, y + (h - 2 - 16) / 2, 72, 16, "Buka blokir", false, mx, my, () -> { LiveFilter.unban(user); notice("Blokir dibuka: @" + user); });
+    }
+
+    private void drawActions(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        switch (i) {
+            case 0 -> toggleCard(g, x, y, w, h, mx, my, "Aksi LIVE aktif", "Follow / gift / komentar memunculkan mob, TNT, item, efek (singleplayer tanpa cheat; server butuh OP)", ClientSettings.actionsEnabled,
+                    () -> { ClientSettings.actionsEnabled = !ClientSettings.actionsEnabled; ClientSettings.save(); if (!ClientSettings.actionsEnabled) LiveActions.clearQueue(); notice("Aksi LIVE " + (ClientSettings.actionsEnabled ? "aktif" : "mati")); });
+            case 1 -> toggleCard(g, x, y, w, h, mx, my, "Nama penonton di atas mob", "Mob muncul dengan nama akun yang follow / kirim gift", ClientSettings.actionsNameTag,
+                    () -> { ClientSettings.actionsNameTag = !ClientSettings.actionsNameTag; ClientSettings.save(); });
+            case 2 -> stepperCard(g, x, y, w, h, mx, my, "Batas gift per event", "Combo gift diproses per potong sampai batas ini; sisanya ditandai \"dibatasi\" di Monitor",
+                    Integer.toString(ClientSettings.actionsMaxPerEvent), () -> changeMaxMobs(-1), () -> changeMaxMobs(1));
+            case 3 -> toggleCard(g, x, y, w, h, mx, my, "TNT mode aman", "Aman: ledakan suara + partikel, blok tidak rusak. Mati: TNT asli menyala dan merusak blok", ClientSettings.tntSafe,
+                    () -> { ClientSettings.tntSafe = !ClientSettings.tntSafe; ClientSettings.save(); notice(ClientSettings.tntSafe ? "TNT aman: tidak merusak blok" : "TNT ASLI: merusak blok!"); });
+            case 4 -> stepperCard(g, x, y, w, h, mx, my, "Batas TNT per gift", "Gift 25 koin = 25 TNT, tapi tidak lebih dari batas ini (diberi tahu di banner)",
+                    Integer.toString(ClientSettings.tntMax), () -> changeInt(v -> ClientSettings.tntMax = v, ClientSettings.tntMax, -5, 1, 100), () -> changeInt(v -> ClientSettings.tntMax = v, ClientSettings.tntMax, 5, 1, 100));
+            case 5 -> stepperCard(g, x, y, w, h, mx, my, "Jeda antar spawn", "Entity muncul satu per satu, bukan semua dalam satu tick",
+                    ClientSettings.spawnGapTicks + " tick", () -> changeInt(v -> ClientSettings.spawnGapTicks = v, ClientSettings.spawnGapTicks, -1, 1, 40), () -> changeInt(v -> ClientSettings.spawnGapTicks = v, ClientSettings.spawnGapTicks, 1, 1, 40));
+            case 6 -> stepperCard(g, x, y, w, h, mx, my, "Batas entity per 30 detik", "Lewat batas: sisa efek menunggu, tidak membuat game lag",
+                    Integer.toString(ClientSettings.maxEntities), () -> changeInt(v -> ClientSettings.maxEntities = v, ClientSettings.maxEntities, -5, 5, 200), () -> changeInt(v -> ClientSettings.maxEntities = v, ClientSettings.maxEntities, 5, 5, 200));
+            case 7 -> stepperCard(g, x, y, w, h, mx, my, "Jeda antar gelombang", "Untuk event besar (Mega Chaos, Special) dan hitung mundur",
+                    ClientSettings.waveGapTicks + " tick", () -> changeInt(v -> ClientSettings.waveGapTicks = v, ClientSettings.waveGapTicks, -5, 5, 200), () -> changeInt(v -> ClientSettings.waveGapTicks = v, ClientSettings.waveGapTicks, 5, 5, 200));
+            case 8 -> stepperCard(g, x, y, w, h, mx, my, "Durasi potion", "Lama efek potion dari gift (tidak pernah permanen)",
+                    ClientSettings.potionSeconds + " dtk", () -> changeInt(v -> ClientSettings.potionSeconds = v, ClientSettings.potionSeconds, -5, 3, 120), () -> changeInt(v -> ClientSettings.potionSeconds = v, ClientSettings.potionSeconds, 5, 3, 120));
+            case 9 -> stepperCard(g, x, y, w, h, mx, my, "Peluang efek baik", "Sisanya efek gangguan (acak:ringan dan acak:potion)",
+                    ClientSettings.potionGoodPct + "%", () -> changeInt(v -> ClientSettings.potionGoodPct = v, ClientSettings.potionGoodPct, -10, 0, 100), () -> changeInt(v -> ClientSettings.potionGoodPct = v, ClientSettings.potionGoodPct, 10, 0, 100));
+            case 10 -> stepperCard(g, x, y, w, h, mx, my, "Cooldown command komentar", "Satu penonton hanya bisa memakai !command sekali per jeda ini",
+                    ClientSettings.cmdCooldownSec + " dtk", () -> changeInt(v -> ClientSettings.cmdCooldownSec = v, ClientSettings.cmdCooldownSec, -1, 0, 120), () -> changeInt(v -> ClientSettings.cmdCooldownSec = v, ClientSettings.cmdCooldownSec, 1, 0, 120));
+            case 11 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Tulis pemicu=hadiah lalu Tambah. Pemicu: follow · share · Rose · id:5655 · diamond:20 · gift · !boom", w - 20), x + 10, y + 7, Ui.TEXT, false);
+                String typed = text().contains("=") ? text().substring(0, text().indexOf('=')) : text();
+                List<String> sug = GiftCatalog.suggest(typed.strip(), 4);
+                String line2 = sug.isEmpty() ? "Hadiah: zombie+creeper+tnt*4 · give:oak_log*64 · acak:tools|berguna|bahaya|boss|ringan|potion · fx:speed · mega" : "Gift cocok: " + String.join(", ", sug);
+                g.text(font, Ui.fit(font, line2, w - 20), x + 10, y + 20, Ui.MUTED, false);
+                g.text(font, Ui.fit(font, "tnt*c = TNT sebanyak koin gift · a|b = gelombang · say:teks = banner · menimpa aturan yang sama", w - 20), x + 10, y + 33, Ui.DIM, false);
+            }
+            case 12 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Uji tanpa LIVE", 90), x + 10, y + (h - 2 - 8) / 2, Ui.MUTED, false);
+                String[][] tests = {{"Follow", "follow"}, {"Like", "like"}, {"Rose", "Rose"}, {"Finger Heart", "Finger Heart"}, {"Perfume", "Perfume"}, {"Doughnut", "Doughnut"}, {"Mega", "Hat and Mustache"}};
+                int area = w - 104, gap = 3, bw = Math.max(24, (area - gap * (tests.length - 1)) / tests.length), by = y + (h - 2 - 18) / 2;
+                for (int t = 0; t < tests.length; t++) {
+                    final String[] test = tests[t];
+                    button(g, x + 98 + t * (bw + gap), by, bw, 18, test[0], false, mx, my, () -> {
+                        if (test[1].equals("follow")) testEvent("follow", "", 1, 0);
+                        else if (test[1].equals("like")) testEvent("like", "", 1, 0);
+                        else testEvent("gift", test[1], 1, Math.max(1, GiftBook.priceOf(test[1])));
+                    });
+                }
+            }
+            case 13 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Uji koin", 90), x + 10, y + (h - 2 - 8) / 2, Ui.MUTED, false);
+                int[] coins = {1, 5, 10, 20, 30, 50, 99, 100};
+                int area = w - 104, gap = 3, bw = Math.max(20, (area - gap * (coins.length - 1)) / coins.length), by = y + (h - 2 - 18) / 2;
+                for (int t = 0; t < coins.length; t++) {
+                    final int c = coins[t];
+                    button(g, x + 98 + t * (bw + gap), by, bw, 18, Integer.toString(c), false, mx, my, () -> testEvent("gift", "Gift Uji " + c, 1, c));
+                }
+            }
+            case 14 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                int by = y + (h - 2 - 18) / 2, bw = Math.max(60, (w - 20 - 12) / 3);
+                button(g, x + 10, by, bw, 18, "Paket XYOMC", true, mx, my, () -> notice(LiveActions.loadPreset(LiveActions.PRESET_XYOMC, true) + " aturan gift bawaan dimuat (aturan lama diganti)"));
+                button(g, x + 14 + bw, by, bw, 18, "Contoh !command", false, mx, my, () -> notice(LiveActions.loadPreset(LiveActions.PRESET_COMMANDS, false) + " contoh command ditambahkan"));
+                button(g, x + 18 + bw * 2, by, bw, 18, "Kosongkan antrean", false, mx, my, () -> { LiveActions.clearQueue(); notice("Antrean efek dikosongkan"); });
+            }
+            case 15 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Antre " + LiveActions.pending() + " · menunggu batas entity " + LiveActions.deferred() + " · berhasil " + LiveActions.spawnedTotal() + " · gagal " + LiveActions.failedTotal(), w - 100), x + 10, y + 8, LiveActions.failedTotal() > 0 ? Ui.BAD : Ui.TEXT, false);
+                g.text(font, Ui.fit(font, McCompat.inWorld() ? "Di dunia · efek berjalan lewat command Minecraft" : "Belum di dunia: masuk dunia supaya efek bisa berjalan", w - 100), x + 10, y + 21, McCompat.inWorld() ? Ui.MUTED : Ui.BAD, false);
+                button(g, x + w - 78, y + (h - 2 - 18) / 2, 70, 18, "Monitor", false, mx, my, () -> setMode(Mode.MONITOR));
+            }
+            case 16 -> stepperCard(g, x, y, w, h, mx, my, "Event random tiap tap per orang", "Tiap penonton mencapai jumlah tap ini dapat 1 event acak (like=acak:chaos). " + (LiveActions.tapLeader().isEmpty() ? "Total tap: " + LiveActions.likeCount() : "Terdekat: " + LiveActions.tapLeader()),
+                    Integer.toString(ClientSettings.likeStep), () -> changeInt(v -> ClientSettings.likeStep = v, ClientSettings.likeStep, -50, 20, 5000),
+                    () -> changeInt(v -> ClientSettings.likeStep = v, ClientSettings.likeStep, 50, 20, 5000));
+            default -> {
+                List<LiveActions.Trigger> triggers = LiveActions.triggers();
+                if (triggers.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada pemicu. Tekan \"Paket XYOMC\" atau tulis: follow=zombie"); return; }
+                LiveActions.Trigger t = triggers.get(Math.min(triggers.size() - 1, i - 17));
+                Ui.rect(g, x, y, w, h - 2, 5, Ui.in(mx, my, x, y, w, h - 2) ? Ui.CARD_HOVER : Ui.CARD);
+                String text = t.label() + "  →  " + LiveActions.prettySpec(t.mob());
+                g.text(font, Ui.fit(font, text, w - 150), x + 10, y + (h - 2 - 8) / 2, t.type().equals("diamond") ? LiveActions.tierColor(Integer.parseInt(t.arg())) : Ui.TEXT, false);
+                int by = y + (h - 2 - 16) / 2;
+                button(g, x + w - 46, by, 42, 16, "Hapus", false, mx, my, () -> { LiveActions.remove(t); notice("Pemicu dihapus"); });
+                button(g, x + w - 46 - 34, by, 30, 16, "Uji", false, mx, my, () -> {
+                    if (!McCompat.inWorld()) { notice("Masuk ke dunia dulu"); return; }
+                    int coins = t.type().equals("diamond") ? Integer.parseInt(t.arg()) : t.type().equals("giftname") ? Math.max(1, GiftBook.priceOf(t.arg())) : 1;
+                    int n = LiveActions.test(t.mob(), "Uji", coins);
+                    notice(n > 0 ? "Menjalankan " + n + " efek: " + LiveActions.prettySpec(t.mob()) : "Tidak ada efek yang bisa dijalankan");
+                });
+                button(g, x + w - 46 - 34 - 38, by, 34, 16, "Ubah", false, mx, my, () -> {
+                    texts.put(Mode.ACTIONS, t.spec());
+                    cursorPos = text().length(); inputFocused = true; allSelected = false; scroll = 0;
+                    notice("Ubah teksnya di kolom atas lalu tekan Tambah (menimpa aturan ini)");
+                });
+            }
+        }
+    }
+
+    private void changeInt(java.util.function.IntConsumer setter, int current, int delta, int min, int max) {
+        setter.accept(Math.max(min, Math.min(max, current + delta)));
+        ClientSettings.save();
+    }
+
+    private static final java.text.SimpleDateFormat CLOCK = new java.text.SimpleDateFormat("HH:mm:ss");
+
+    private void drawGifts(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        if (i == 0) {
+            Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+            long up = GiftBook.lastUpdate();
+            g.text(font, Ui.fit(font, "Katalog gift · harga koin hanya dari event LIVE nyata (atau acuan tabel hadiah)", w - 20), x + 10, y + 8, Ui.TEXT, false);
+            g.text(font, Ui.fit(font, up == 0 ? "Belum ada data LIVE. Mulai LIVE sekali: nama, id, dan harga gift tersimpan otomatis dan tetap ada saat offline." : "Pembaruan terakhir dari LIVE: " + CLOCK.format(new java.util.Date(up)) + " · '?' berarti harga belum diketahui (tidak ditebak)", w - 20), x + 10, y + 22, Ui.MUTED, false);
+            return;
+        }
+        List<GiftBook.Entry> entries = GiftBook.entries();
+        if (entries.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada gift."); return; }
+        GiftBook.Entry e = entries.get(Math.min(entries.size() - 1, i - 1));
+        int price = GiftBook.priceOf(e.name());
+        String source = GiftBook.sourceOf(e.name());
+        Ui.rect(g, x, y, w, h - 2, 5, Ui.in(mx, my, x, y, w, h - 2) ? Ui.CARD_HOVER : Ui.CARD);
+        LiveActions.Trigger rule = LiveActions.ruleFor(e.name(), e.id(), Math.max(0, price));
+        String priceText = price > 0 ? (source.equals("acuan") ? "~" : "") + price + " koin" : "? koin";
+        String idText = e.id() > 0 ? " · id " + e.id() : "";
+        int right = 78;
+        g.text(font, Ui.fit(font, e.name() + "  " + priceText + idText + (e.times() > 0 ? " · terlihat " + e.times() + "×" : ""), w - right - 14), x + 10, y + 5, price > 0 ? LiveActions.tierColor(price) : Ui.TEXT, false);
+        g.text(font, Ui.fit(font, rule == null ? "Belum ada aturan" : "→ " + LiveActions.prettySpec(rule.mob()) + (rule.type().equals("giftname") ? "" : "  (" + rule.label() + ")"), w - right - 14), x + 10, y + 17, rule == null ? Ui.DIM : Ui.MUTED, false);
+        int by = y + (h - 2 - 16) / 2;
+        final GiftBook.Entry entry = e;
+        button(g, x + w - 36, by, 32, 16, "Atur", false, mx, my, () -> {
+            texts.put(Mode.ACTIONS, entry.name() + "=");
+            setMode(Mode.ACTIONS);
+            texts.put(Mode.ACTIONS, entry.name() + "=");
+            cursorPos = text().length(); inputFocused = true;
+            notice("Tulis hadiahnya setelah = lalu tekan Tambah");
+        });
+        button(g, x + w - 36 - 36, by, 32, 16, "Uji", false, mx, my, () -> testEvent("gift", entry.name(), 1, Math.max(0, GiftBook.priceOf(entry.name()))));
+    }
+
+    private static final String[] DEFAULT_PHRASES = {
+        "Selamat datang di LIVE, jangan lupa follow ya",
+        "Terima kasih sudah menonton, kalian luar biasa",
+        "Tap tap layarnya, setiap dua ratus tap ada event acak",
+        "Kirim gift untuk memunculkan mob dan TNT",
+        "Ketik ikut di kolom komentar untuk ikut undian",
+        "Sebentar lagi ada kejutan besar, tetap di sini",
+        "Sampai jumpa di LIVE berikutnya"
+    };
+
+    private List<String> phrases() {
+        List<String> l = new ArrayList<>(List.of(DEFAULT_PHRASES));
+        if (!ClientSettings.quickPhrases.isEmpty()) for (String p : ClientSettings.quickPhrases.split("\\|")) if (!p.isBlank()) l.add(p);
+        return l;
+    }
+
+    private void drawPhrases(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        if (i == 0) {
+            Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+            g.text(font, Ui.fit(font, "Klik kalimat untuk membacakannya dengan suara chat sendiri", w - 20), x + 10, y + 8, Ui.TEXT, false);
+            g.text(font, Ui.fit(font, "Ketik kalimat di kolom atas lalu Tambah · kalimat buatanmu bisa dihapus", w - 20), x + 10, y + 22, Ui.MUTED, false);
+            return;
+        }
+        List<String> all = phrases();
+        int idx = i - 1;
+        if (idx >= all.size()) return;
+        boolean custom = idx >= DEFAULT_PHRASES.length;
+        String p = all.get(idx);
+        int bw = custom ? 52 : 0;
+        boolean over = mx >= x && mx < x + w - bw && my >= y && my < y + h - 2;
+        Ui.rect(g, x, y, w, h - 2, 5, over ? Ui.CARD_HOVER : Ui.CARD);
+        g.text(font, Ui.fit(font, "▶  " + p, w - 20 - bw), x + 10, y + (h - 2 - 8) / 2, Ui.TEXT, false);
+        hits.add(new Hit(x, y, w - bw, h - 2, () -> {
+            TikTokLiveService.speak(p, 0, true); notice("Dibacakan");
+        }));
+        if (custom) {
+            final int ci = idx - DEFAULT_PHRASES.length;
+            button(g, x + w - 48, y + (h - 2 - 16) / 2, 42, 16, "Hapus", false, mx, my, () -> {
+                List<String> mine = new ArrayList<>(List.of(ClientSettings.quickPhrases.split("\\|")));
+                mine.removeIf(String::isBlank);
+                if (ci >= 0 && ci < mine.size()) mine.remove(ci);
+                ClientSettings.quickPhrases = String.join("|", mine);
+                ClientSettings.save();
+            });
+        }
+    }
+
+    private int botSlot, botTier = 3;
+
+    private void cycleBool(String label, boolean v) { notice(label + (v ? ": ON" : ": MATI")); }
+
+    private void drawBot(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        switch (i) {
+            case 0 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, (ClientSettings.botEnabled ? "Bot AKTIF · " + Bots.BOTS.size() + " bot" : "Bot MATI") + " · " + (Bots.afkOn ? "AFK AUTOPILOT AKTIF" : "AFK mati"), w - 20), x + 10, y + 7, Bots.afkOn ? 0xFFC084FC : Ui.TEXT, false);
+                String first = Bots.BOTS.isEmpty() ? (Bots.afk != null ? Bots.afkStatus : "Aktifkan bot lalu klik Panggil. Perintah: /xyoplay bot panggil · ikut · diam · otomatis · base") : "Bot 1: " + Bots.BOTS.get(0).status + " · " + Bots.BOTS.get(0).summary();
+                g.text(font, Ui.fit(font, first, w - 20), x + 10, y + 21, Ui.MUTED, false);
+                String diag = !Bots.problem.isEmpty() ? "! " + Bots.problem : !ServerBridge.last.isEmpty() && ServerBridge.broken ? "! " + ServerBridge.last : "Gerak: " + (ServerBridge.available() ? "langsung di dunia sendiri" : "lewat command (server: butuh OP)") + (McWorld.healthy ? "" : " · dunia tidak terbaca");
+                g.text(font, Ui.fit(font, diag, w - 20), x + 10, y + 35, diag.startsWith("!") ? Ui.BAD : Ui.DIM, false);
+            }
+            case 1 -> toggleCard(g, x, y, w, h, mx, my, "Bot aktif", "Muncul di sebelahmu dan mengikuti ke mana pun (dimatikan = bot hilang)", ClientSettings.botEnabled,
+                    () -> { ClientSettings.botEnabled = !ClientSettings.botEnabled; ClientSettings.save(); });
+            case 2 -> stepperCard(g, x, y, w, h, mx, my, "Jumlah bot", "Berapa bot yang muncul (1–5)", Integer.toString(ClientSettings.botCount),
+                    () -> { ClientSettings.botCount = Math.max(1, ClientSettings.botCount - 1); ClientSettings.save(); },
+                    () -> { ClientSettings.botCount = Math.min(5, ClientSettings.botCount + 1); ClientSettings.save(); });
+            case 3 -> actionCard(g, x, y, w, h, mx, my, "Bentuk bot", "Pemain biasa (pakai skin) atau mob; klik untuk ganti", Bots.TYPES[Math.min(ClientSettings.botType, Bots.TYPES.length - 1)][1],
+                    () -> { ClientSettings.botType = (ClientSettings.botType + 1) % Bots.TYPES.length; ClientSettings.save(); Bots.refreshLook(); });
+            case 4 -> stepperCard(g, x, y, w, h, mx, my, "Skin pemain", "Skin bawaan (offline) atau ketik nama akun Minecraft di kolom atas lalu Skin", Bots.SKINS[ClientSettings.botSkin][0].equals("Nama akun…") ? (ClientSettings.botSkinName.isEmpty() ? "Nama akun…" : ClientSettings.botSkinName) : Bots.SKINS[ClientSettings.botSkin][0],
+                    () -> { ClientSettings.botSkin = (ClientSettings.botSkin + Bots.SKINS.length - 1) % Bots.SKINS.length; ClientSettings.save(); Bots.refreshLook(); },
+                    () -> { ClientSettings.botSkin = (ClientSettings.botSkin + 1) % Bots.SKINS.length; ClientSettings.save(); Bots.refreshLook(); });
+            case 5 -> stepperCard(g, x, y, w, h, mx, my, "Pakaian", "Armor hias awal; armor asli buatan bot menggantikannya", Bots.OUTFITS[ClientSettings.botOutfit],
+                    () -> { ClientSettings.botOutfit = (ClientSettings.botOutfit + Bots.OUTFITS.length - 1) % Bots.OUTFITS.length; ClientSettings.save(); Bots.refreshLook(); },
+                    () -> { ClientSettings.botOutfit = (ClientSettings.botOutfit + 1) % Bots.OUTFITS.length; ClientSettings.save(); Bots.refreshLook(); });
+            case 6 -> toggleCard(g, x, y, w, h, mx, my, "Mode survival", "Bot bisa terluka dan mati (bahannya hilang separuh, lalu muncul lagi); mati = mulai dari alat yang sudah dibuat", ClientSettings.botSurvival,
+                    () -> { ClientSettings.botSurvival = !ClientSettings.botSurvival; ClientSettings.save(); Bots.refreshLook(); });
+            case 7 -> actionCard(g, x, y, w, h, mx, my, "Panggil ke sini", "Semua bot muncul lagi di dekatmu dan mengikuti", "Panggil", () -> notice(Bots.handle("panggil")));
+            case 8 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, "Perintah untuk bot", x + 10, y + 8, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, "Ikut = jaga di dekatmu · Diam · Otomatis = cari bahan & buat alat sendiri · Base = rumah kecil", w - 20), x + 10, y + 21, Ui.MUTED, false);
+                String[] names = {"Ikut", "Diam", "Otomatis", "Base"};
+                String[] cmds = {"ikut", "diam", "otomatis", "base"};
+                int bw = 64, bx = x + w - 8 - names.length * (bw + 4) + 4, by = y + 30;
+                for (int k = 0; k < names.length; k++) { final String c = cmds[k]; button(g, bx + k * (bw + 4), by, bw, 20, names[k], k == 0, mx, my, () -> notice(Bots.handle(c))); }
+            }
+            case 9 -> actionCard(g, x, y, w, h, mx, my, "Tambang / cari balok", "Bot mencari: " + ClientSettings.botMine + " (klik untuk ganti jenis, lalu Mulai)", "Ganti",
+                    () -> { int k = java.util.List.of(Bots.MINE_KINDS).indexOf(ClientSettings.botMine); ClientSettings.botMine = Bots.MINE_KINDS[(k + 1) % Bots.MINE_KINDS.length]; ClientSettings.save(); });
+            case 10 -> actionCard(g, x, y, w, h, mx, my, "Mulai tambang", "Bot menambang \"" + ClientSettings.botMine + "\" di sekitar lalu menyimpannya di tasnya", "Mulai", () -> notice(Bots.handle("tambang " + ClientSettings.botMine)));
+            case 11 -> stepperCard(g, x, y, w, h, mx, my, "Buatkan alat: " + BotGear.SLOTS[botSlot], "Pilih alat atau armor yang dibuatkan bot untukmu", BotGear.SLOTS[botSlot],
+                    () -> botSlot = (botSlot + BotGear.SLOTS.length - 1) % BotGear.SLOTS.length, () -> botSlot = (botSlot + 1) % BotGear.SLOTS.length);
+            case 12 -> stepperCard(g, x, y, w, h, mx, my, "Bahan alat", "Kayu, batu, besi, atau berlian (bot memakai bahan di tasnya)", BotGear.TIER_NAMES[botTier],
+                    () -> botTier = botTier <= 1 ? 4 : botTier - 1, () -> botTier = botTier >= 4 ? 1 : botTier + 1);
+            case 13 -> actionCard(g, x, y, w, h, mx, my, "Buat & beri ke aku", "Bot membuat " + BotGear.TIER_NAMES[botTier] + " " + BotGear.SLOTS[botSlot] + " dari tasnya; bahan kurang = bot mencarinya", "Buat",
+                    () -> notice(Bots.handle("buat " + BotGear.SLOTS[botSlot] + " " + BotGear.TIER_NAMES[botTier])));
+            case 14 -> toggleCard(g, x, y, w, h, mx, my, "Boleh menggali", "Gali terowongan untuk mengikutimu menembus tanah dan gunung", ClientSettings.botDig, () -> { ClientSettings.botDig = !ClientSettings.botDig; ClientSettings.save(); });
+            case 15 -> toggleCard(g, x, y, w, h, mx, my, "Boleh menaruh blok", "Pilar ke atas, jembatan di jurang (naik gunung, keluar gua)", ClientSettings.botPlace, () -> { ClientSettings.botPlace = !ClientSettings.botPlace; ClientSettings.save(); });
+            case 16 -> toggleCard(g, x, y, w, h, mx, my, "Lawan mob otomatis", "Menyerang monster di dekatmu", ClientSettings.botFight, () -> { ClientSettings.botFight = !ClientSettings.botFight; ClientSettings.save(); });
+            case 17 -> toggleCard(g, x, y, w, h, mx, my, "Buat & upgrade alat otomatis", "Kayu → batu → besi → berlian, plus armor besi", ClientSettings.botAutoGear, () -> { ClientSettings.botAutoGear = !ClientSettings.botAutoGear; ClientSettings.save(); });
+            case 18 -> toggleCard(g, x, y, w, h, mx, my, "Bangun base otomatis", "Mode Otomatis membangun rumah 5x5 saat bahan cukup (72 blok)", ClientSettings.botAutoBase, () -> { ClientSettings.botAutoBase = !ClientSettings.botAutoBase; ClientSettings.save(); });
+            case 19 -> toggleCard(g, x, y, w, h, mx, my, "Deteksi bijih tersembunyi", "Bot tahu letak besi/berlian dalam 12 blok (matikan = hanya yang terlihat)", ClientSettings.botXray, () -> { ClientSettings.botXray = !ClientSettings.botXray; ClientSettings.save(); });
+            case 20 -> toggleCard(g, x, y, w, h, mx, my, "Nama di atas bot", "Tampilkan nama \"XYO Bot\" di atas kepala", ClientSettings.botNametag, () -> { ClientSettings.botNametag = !ClientSettings.botNametag; ClientSettings.save(); });
+            case 21 -> stepperCard(g, x, y, w, h, mx, my, "Jarak ikut", "Bot berhenti sekitar sekian blok darimu", ClientSettings.botFollowDist + " blok",
+                    () -> { ClientSettings.botFollowDist = Math.max(2, ClientSettings.botFollowDist - 1); ClientSettings.save(); },
+                    () -> { ClientSettings.botFollowDist = Math.min(10, ClientSettings.botFollowDist + 1); ClientSettings.save(); });
+            case 22 -> actionCard(g, x, y, w, h, mx, my, "Kecepatan bot", "Santai / Normal / Cepat", Bots.SPEEDS[ClientSettings.botSpeed], () -> { ClientSettings.botSpeed = (ClientSettings.botSpeed + 1) % 3; ClientSettings.save(); });
+            case 23 -> actionCard(g, x, y, w, h, mx, my, "Hemat resource", "Batas pencarian jalan per bot: " + Bots.ECO[ClientSettings.botEco] + " (Hemat = CPU paling ringan)", Bots.ECO[ClientSettings.botEco],
+                    () -> { ClientSettings.botEco = (ClientSettings.botEco + 1) % 3; ClientSettings.save(); });
+            case 24 -> { g.text(font, "MODE AFK — kamu diam, karaktermu bermain sendiri", x + 4, y + 9, 0xFFC084FC, false); }
+            case 25 -> toggleCard(g, x, y, w, h, mx, my, "AFK autopilot", "Karaktermu menebang pohon, menambang, membuat alat, bangun base, dan melawan mob sendiri", Bots.afkOn,
+                    () -> Bots.setAfk(!Bots.afkOn));
+            case 26 -> toggleCard(g, x, y, w, h, mx, my, "Respawn otomatis", "Saat mati, tombol respawn ditekan sendiri", ClientSettings.afkRespawn, () -> { ClientSettings.afkRespawn = !ClientSettings.afkRespawn; ClientSettings.save(); });
+            case 27 -> toggleCard(g, x, y, w, h, mx, my, "Kembali ke titik mati", "Setelah respawn, berjalan kembali ke tempat mati (dilewati kalau mati 3x di area yang sama)", ClientSettings.afkReturn, () -> { ClientSettings.afkReturn = !ClientSettings.afkReturn; ClientSettings.save(); });
+            case 28 -> toggleCard(g, x, y, w, h, mx, my, "Isi rasa lapar otomatis", "Efek kenyang kecil tiap 1 menit agar tidak kelaparan saat AFK", ClientSettings.afkFood, () -> { ClientSettings.afkFood = !ClientSettings.afkFood; ClientSettings.save(); });
+            case 29 -> toggleCard(g, x, y, w, h, mx, my, "Berlindung saat malam", "Jika sudah punya base, pulang dan menunggu di dalam saat malam", ClientSettings.afkNightHome, () -> { ClientSettings.afkNightHome = !ClientSettings.afkNightHome; ClientSettings.save(); });
+            default -> {
+                int idx = i - 30;
+                List<BotAgent> all = new ArrayList<>(Bots.BOTS);
+                if (Bots.afk != null) all.add(Bots.afk);
+                if (all.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada bot. Aktifkan bot lalu klik Panggil."); return; }
+                BotAgent a = all.get(Math.min(all.size() - 1, idx));
+                Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
+                g.text(font, Ui.fit(font, (a.playerBody ? "Kamu (AFK)" : "Bot " + a.id) + " · " + a.mode.label + " · " + a.status, w - 20), x + 10, y + 5, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, "Tas: " + a.inv.m + " · alat: pickaxe " + BotGear.TIER_NAMES[a.gear.tier("pickaxe")] + ", pedang " + BotGear.TIER_NAMES[a.gear.tier("sword")] + " · tambang " + a.blocksMined, w - 20), x + 10, y + 17, Ui.MUTED, false);
+            }
+        }
+    }
+
+    private void drawSfx(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        MemeSounds.installDefaults();
+        switch (i) {
+            case 0 -> toggleCard(g, x, y, w, h, mx, my, "Efek suara aktif", "Putar suara seru untuk follow, gift, tap event, target, dan pemenang undian", ClientSettings.memeSounds,
+                    () -> { ClientSettings.memeSounds = !ClientSettings.memeSounds; ClientSettings.save(); });
+            case 1 -> stepperCard(g, x, y, w, h, mx, my, "Volume efek", "Terpisah dari volume musik dan TTS", ClientSettings.memeVolume + "%",
+                    () -> { ClientSettings.memeVolume = Math.max(0, ClientSettings.memeVolume - 10); ClientSettings.save(); },
+                    () -> { ClientSettings.memeVolume = Math.min(100, ClientSettings.memeVolume + 10); ClientSettings.save(); });
+            case 2 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Mau pakai sound meme sendiri? Taruh file wav / mp3 / ogg ke folder jenisnya:", w - 20), x + 10, y + 8, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, "config/xyoplay/sounds/<jenis>/  (mis. sounds/follow/)", w - 20), x + 10, y + 22, Ui.MUTED, false);
+                g.text(font, Ui.fit(font, "Beberapa file = dipilih acak. Hapus file bawaan jika tidak mau dipakai.", w - 20), x + 10, y + 35, Ui.MUTED, false);
+            }
+            default -> {
+                MemeSounds.Kind k = MemeSounds.KINDS.get(Math.min(MemeSounds.KINDS.size() - 1, i - 3));
+                Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
+                g.text(font, Ui.fit(font, k.label() + " · " + k.when(), w - 130), x + 10, y + 5, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, MemeSounds.files(k.id()).size() + " file · sounds/" + k.id(), w - 130), x + 10, y + 17, Ui.MUTED, false);
+                button(g, x + w - 62, y + (h - 2 - 18) / 2, 54, 18, "Uji", true, mx, my, () -> {
+                    if (MemeSounds.files(k.id()).isEmpty()) notice("Folder " + k.id() + " kosong");
+                    else { MemeSounds.play(k.id()); notice("Memutar: " + k.label()); }
+                });
+            }
+        }
+    }
+
+    private void drawGiveaway(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        switch (i) {
+            case 0 -> toggleCard(g, x, y, w, h, mx, my, "Pendaftaran dibuka · " + Giveaway.size() + " peserta",
+                    "Penonton komentar \"" + ClientSettings.giveawayWord + "\" untuk ikut (ganti kata lewat kolom di atas)", Giveaway.isOpen(),
+                    () -> Giveaway.setOpen(!Giveaway.isOpen()));
+            case 1 -> actionCard(g, x, y, w, h, mx, my, "Undi pemenang", "Banner, judul besar, suara, dan TTS \"Selamat …\" untuk pemenang", "Undi!", () -> {
+                Giveaway.Winner win = Giveaway.draw();
+                notice(win == null ? "Belum ada peserta" : "Pemenang: " + win.name());
+            });
+            case 2 -> actionCard(g, x, y, w, h, mx, my, "Reset peserta", "Kosongkan daftar peserta untuk ronde baru (riwayat pemenang tetap)", "Reset", () -> { Giveaway.reset(); notice("Peserta dikosongkan"); });
+            case 3 -> actionCard(g, x, y, w, h, mx, my, "Tambah 5 peserta uji", "Untuk mencoba undian tanpa sedang LIVE", "Tambah", () -> { Giveaway.addTest(5); notice("5 peserta uji ditambahkan"); });
+            default -> {
+                List<Giveaway.Winner> ws = Giveaway.winners();
+                if (ws.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada pemenang."); return; }
+                Giveaway.Winner win = ws.get(Math.min(ws.size() - 1, i - 4));
+                Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
+                g.text(font, Ui.fit(font, "★ " + win.name(), w - 80), x + 10, y + (h - 2 - 8) / 2, 0xFFFFD700, false);
+                String t = CLOCK.format(new java.util.Date(win.time()));
+                g.text(font, t, x + w - 10 - font.width(t), y + (h - 2 - 8) / 2, Ui.MUTED, false);
+            }
+        }
+    }
+
+    private void drawMonitor(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        if (i == 0) {
+            Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+            g.text(font, Ui.fit(font, "Antre " + LiveActions.pending() + " · menunggu " + LiveActions.deferred() + " · berhasil " + LiveActions.spawnedTotal() + " · gagal " + LiveActions.failedTotal() + " · " + (ClientSettings.actionsEnabled ? "Aksi AKTIF" : "Aksi MATI"), w - 100), x + 10, y + 8, LiveActions.failedTotal() > 0 ? Ui.BAD : Ui.TEXT, false);
+            g.text(font, Ui.fit(font, TikTokLiveService.isRunning() ? "LIVE tersambung · " + TikTokLiveService.status() : "LIVE belum tersambung (tab LIVE) · uji dengan tab Aksi", w - 100), x + 10, y + 22, TikTokLiveService.isRunning() ? Ui.OK : Ui.MUTED, false);
+            button(g, x + w - 78, y + (h - 2 - 18) / 2, 70, 18, "Bersihkan", false, mx, my, () -> { LiveActions.clearLog(); notice("Log dibersihkan"); });
+            return;
+        }
+        List<LiveActions.EventRec> log = LiveActions.log();
+        if (log.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada event. Gift, follow, dan command LIVE muncul di sini beserta hasilnya."); return; }
+        LiveActions.EventRec r = log.get(Math.min(log.size() - 1, i - 1));
+        Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
+        int stateCol = r.bad() ? Ui.BAD : r.running() ? 0xFFFACC15 : Ui.OK;
+        String state = r.state();
+        int sw = font.width(state);
+        g.text(font, state, x + w - sw - 10, y + 5, stateCol, false);
+        g.text(font, Ui.fit(font, CLOCK.format(new java.util.Date(r.time)) + "  " + r.who + " · " + r.source, w - sw - 30), x + 10, y + 5, Ui.TEXT, false);
+        String detail = r.effect + (!r.error.isEmpty() ? "  ✖ " + r.error : !r.note.isEmpty() ? "  ! " + r.note : "");
+        g.text(font, Ui.fit(font, detail, w - 20), x + 10, y + 17, !r.error.isEmpty() ? Ui.BAD : !r.note.isEmpty() ? 0xFFFACC15 : Ui.MUTED, false);
+    }
+
+    private void changeMaxMobs(int delta) {
+        ClientSettings.actionsMaxPerEvent = Math.max(1, Math.min(50, ClientSettings.actionsMaxPerEvent + delta));
+        ClientSettings.save();
+    }
+
+    private void testEvent(String kind, String gift, int count, int diamonds) {
+        if (!ClientSettings.actionsEnabled) { notice("Nyalakan \"Aksi LIVE aktif\" dulu"); return; }
+        if (!McCompat.inWorld()) { notice("Masuk ke dunia dulu untuk menguji"); return; }
+        TikTokLiveService.simulate(kind, "Penonton", gift, count, diamonds);   // diamonds = price of ONE piece
+        notice("Event uji dikirim");
+    }
+
+    private void drawStats(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        switch (i) {
+            case 0 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                g.text(font, Ui.fit(font, "Pesan " + TikTokLiveService.totalComments() + " · Follow " + TikTokLiveService.followCount() + " · Share " + TikTokLiveService.shareCount(), w - 20), x + 10, y + 8, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, "Gift " + TikTokLiveService.giftCount() + " · Like " + LiveActions.likeCount() + " · Total " + TikTokLiveService.diamondTotal() + " koin · Efek jalan " + LiveActions.spawnedTotal(), w - 20), x + 10, y + 22, Ui.MUTED, false);
+                g.text(font, Ui.fit(font, TikTokLiveService.isRunning() ? "LIVE tersambung" : "LIVE belum dimulai (tab LIVE > Mulai LIVE)", w - 20), x + 10, y + 35, TikTokLiveService.isRunning() ? Ui.OK : Ui.DIM, false);
+            }
+            case 1 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                List<String> seen = TikTokLiveService.seenGifts();
+                g.text(font, "Gift yang terlihat", x + 10, y + 8, Ui.TEXT, false);
+                g.text(font, Ui.fit(font, seen.isEmpty() ? "Belum ada gift. Nama persisnya muncul di sini untuk dipakai di tab Aksi." : String.join(", ", seen), w - 20), x + 10, y + 22, Ui.MUTED, false);
+            }
+            case 2 -> {
+                g.text(font, "Peringkat pengirim gift", x + 4, y + 8, Ui.ACCENT, false);
+                button(g, x + w - 56, y + 2, 52, 16, "Reset", false, mx, my, () -> { TikTokLiveService.resetStats(); notice("Statistik direset"); });
+            }
+            default -> {
+                List<TikTokLiveService.Gifter> top = TikTokLiveService.topGifters(10);
+                if (top.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada gift pada LIVE ini."); return; }
+                int idx = Math.min(top.size() - 1, i - 3);
+                TikTokLiveService.Gifter gifter = top.get(idx);
+                Ui.rect(g, x, y, w, h - 2, 5, Ui.CARD);
+                int ty = y + (h - 2 - 8) / 2;
+                String rank = "#" + (idx + 1);
+                g.text(font, rank, x + 10, ty, idx == 0 ? 0xFFFFD700 : idx == 1 ? 0xFFD1D5DB : idx == 2 ? 0xFFFB923C : Ui.MUTED, false);
+                String right = gifter.diamonds() + " diamond · " + gifter.gifts() + " gift";
+                g.text(font, right, x + w - font.width(right) - 10, ty, 0xFFFFEA75, false);
+                g.text(font, Ui.fit(font, gifter.user(), w - font.width(right) - 60), x + 14 + font.width(rank), ty, Ui.TEXT, false);
+            }
+        }
+    }
+
+    private void drawWaypoints(GuiGraphicsExtractor g, int i, int x, int y, int w, int h, int mx, int my) {
+        switch (i) {
+            case 0 -> {
+                Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
+                double[] pos = McCompat.position();
+                String line1 = pos == null ? "Masuk ke dunia untuk memakai titik" : "Posisi: " + (int) Math.floor(pos[0]) + " " + (int) Math.floor(pos[1]) + " " + (int) Math.floor(pos[2]) + " · menghadap " + McCompat.compass(McCompat.yaw());
+                g.text(font, Ui.fit(font, line1, w - 20), x + 10, y + 8, Ui.TEXT, false);
+                Waypoints.Point tracked = Waypoints.tracked();
+                String line2 = tracked == null ? "Ketik nama di atas lalu Simpan · atau /xyoplay titik <nama>" : "Dipandu: " + tracked.name() + " · " + Waypoints.distance(tracked) + " blok · " + Waypoints.direction(tracked);
+                g.text(font, Ui.fit(font, line2, w - 20), x + 10, y + 21, tracked == null ? Ui.MUTED : Ui.OK, false);
+            }
+            case 1 -> toggleCard(g, x, y, w, h, mx, my, "Info koordinat di layar", "XYZ, arah, dan jarak ke titik yang dipandu", ClientSettings.infoHud,
+                    () -> { ClientSettings.infoHud = !ClientSettings.infoHud; ClientSettings.save(); });
+            case 2 -> toggleCard(g, x, y, w, h, mx, my, "Tandai lokasi mati", "Titik \"Mati\" tersimpan otomatis dan langsung dipandu", ClientSettings.deathMarker,
+                    () -> { ClientSettings.deathMarker = !ClientSettings.deathMarker; ClientSettings.save(); });
+            default -> {
+                List<Waypoints.Point> points = Waypoints.points();
+                if (points.isEmpty()) { emptyRow(g, x, y, w, h, "Belum ada titik tersimpan."); return; }
+                Waypoints.Point p = points.get(Math.min(points.size() - 1, i - 3));
+                boolean isTracked = p.equals(Waypoints.tracked());
+                Ui.rect(g, x, y, w, h - 2, 5, isTracked ? Ui.CARD_ACTIVE : Ui.in(mx, my, x, y, w, h - 2) ? Ui.CARD_HOVER : Ui.CARD);
+                int dist = Waypoints.distance(p);
+                String dimLabel = Waypoints.dimensionLabel(p.dimension());
+                String sub = Waypoints.coords(p) + (dimLabel.isEmpty() ? "" : " · " + dimLabel) + (dist >= 0 ? " · " + dist + " blok " + Waypoints.direction(p) : "");
+                boolean wide = w >= 330;
+                int buttonsW = wide ? 148 : 78;
+                g.text(font, Ui.fit(font, p.name(), w - buttonsW - 20), x + 10, y + 6, p.death() ? Ui.BAD : Ui.TEXT, false);
+                g.text(font, Ui.fit(font, sub, w - buttonsW - 20), x + 10, y + 18, Ui.MUTED, false);
+                int by = y + (h - 2 - 16) / 2, bx = x + w - 4;
+                bx -= 40; button(g, bx, by, 38, 16, "Hapus", false, mx, my, () -> { Waypoints.remove(p); notice("Titik dihapus: " + p.name()); });
+                bx -= 40; button(g, bx, by, 38, 16, isTracked ? "Lepas" : "Pandu", false, mx, my, () -> { Waypoints.track(isTracked ? null : p); notice(isTracked ? "Pemanduan dimatikan" : "Dipandu ke " + p.name()); });
+                if (wide) {
+                    bx -= 36; button(g, bx, by, 34, 16, "Salin", false, mx, my, () -> { Minecraft.getInstance().keyboardHandler.setClipboard(Waypoints.coords(p)); notice("Koordinat disalin: " + Waypoints.coords(p)); });
+                    bx -= 28; button(g, bx, by, 26, 16, "TP", false, mx, my, () -> {
+                        String dim = McCompat.dimension();
+                        if (!p.dimension().isEmpty() && !dim.isEmpty() && !p.dimension().equals(dim)) { notice("Titik ada di dimensi lain"); return; }
+                        notice(McCompat.runCommand("tp @s " + p.x() + " " + p.y() + " " + p.z()) ? "Teleport ke " + p.name() : "Tidak bisa teleport (butuh cheat/OP)");
+                    });
+                }
+            }
         }
     }
 
@@ -785,7 +1508,7 @@ public final class MusicScreen extends Screen {
         } else {
             int part = i - 2;
             Ui.box(g, x, y, w, h - 2, 5, Ui.CARD, Ui.BORDER);
-            g.text(font, part == 0 ? "Diagnostik alat" : "Python & paket LIVE", x + 10, y + 7, Ui.TEXT, false);
+            g.text(font, part == 0 ? "Diagnostik alat" : "Python & paket LIVE / TTS", x + 10, y + 7, Ui.TEXT, false);
             if (part == 0) {
                 String label = ToolCheck.running() ? "Memeriksa…" : "Periksa";
                 int bw = Math.max(56, font.width(label) + 18);
@@ -793,7 +1516,7 @@ public final class MusicScreen extends Screen {
             }
             List<ToolCheck.Line> lines = ToolCheck.lines();
             if (lines.isEmpty()) g.text(font, Ui.fit(font, part == 0 ? "Klik Periksa untuk mengecek ffmpeg, ffprobe, yt-dlp, python." : "Hasil muncul setelah Periksa dijalankan.", w - 20), x + 10, y + 24, Ui.MUTED, false);
-            for (int k = 0; k < 3; k++) {
+            for (int k = 0; k < (part == 0 ? 3 : 4); k++) {
                 int idx = part * 3 + k;
                 if (idx >= lines.size()) break;
                 ToolCheck.Line l = lines.get(idx);
@@ -1063,7 +1786,7 @@ public final class MusicScreen extends Screen {
             if (key == GLFW.GLFW_KEY_RIGHT) { allSelected = false; cursorPos = Math.min(t.length(), cursorPos + 1); return true; }
             if (key == GLFW.GLFW_KEY_HOME) { allSelected = false; cursorPos = 0; return true; }
             if (key == GLFW.GLFW_KEY_END) { allSelected = false; cursorPos = t.length(); return true; }
-            if (event.isConfirmation()) { doAction(); if (mode != Mode.LOCAL) inputFocused = false; return true; }
+            if (event.isConfirmation()) { doAction(); if (mode != Mode.LOCAL && mode != Mode.FILTER && mode != Mode.BANNED && mode != Mode.ACTIONS && mode != Mode.GIVEAWAY && mode != Mode.PHRASES && mode != Mode.BOT) inputFocused = false; return true; }
             return true; // swallow everything else while typing (so letters like X do not close the window)
         }
         if (key == GLFW.GLFW_KEY_X) { onClose(); return true; }

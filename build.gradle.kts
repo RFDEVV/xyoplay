@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "id.rfdevv"
-version = "2.6.0-client"
+version = "2.12.1-client"
 
 base { archivesName.set("XYOPlay-Client") }
 

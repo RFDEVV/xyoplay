@@ -74,6 +74,52 @@ final class Ui {
         }
     }
 
+    /** Solid disc. */
+    static void disc(GuiGraphicsExtractor g, int cx, int cy, int r, int color) {
+        for (int dy = -r; dy <= r; dy++) {
+            int half = (int) Math.round(Math.sqrt(Math.max(0, r * r - dy * dy + 0.25)));
+            g.fill(cx - half, cy + dy, cx + half + 1, cy + dy + 1, color);
+        }
+    }
+
+    /** Ring of the given thickness. */
+    static void ring(GuiGraphicsExtractor g, int cx, int cy, int r, int thick, int color) {
+        for (int dy = -r; dy <= r; dy++) {
+            int outer = (int) Math.round(Math.sqrt(Math.max(0, r * r - dy * dy + 0.25)));
+            int ir = r - thick;
+            int inner = Math.abs(dy) >= ir ? -1 : (int) Math.round(Math.sqrt(Math.max(0, ir * ir - dy * dy + 0.25)));
+            if (inner < 0) g.fill(cx - outer, cy + dy, cx + outer + 1, cy + dy + 1, color);
+            else {
+                g.fill(cx - outer, cy + dy, cx - inner, cy + dy + 1, color);
+                g.fill(cx + inner + 1, cy + dy, cx + outer + 1, cy + dy + 1, color);
+            }
+        }
+    }
+
+    /** Straight line made of small squares (thickness in px). */
+    static void line(GuiGraphicsExtractor g, double x1, double y1, double x2, double y2, int thick, int color) {
+        double len = Math.hypot(x2 - x1, y2 - y1);
+        int steps = Math.max(1, (int) Math.ceil(len));
+        int off = thick / 2;
+        for (int i = 0; i <= steps; i++) {
+            double t = (double) i / steps;
+            int x = (int) Math.round(x1 + (x2 - x1) * t), y = (int) Math.round(y1 + (y2 - y1) * t);
+            g.fill(x - off, y - off, x - off + thick, y - off + thick, color);
+        }
+    }
+
+    /** Arrow centred on (cx,cy) pointing at the angle (radians, 0 = up, clockwise positive). */
+    static void arrow(GuiGraphicsExtractor g, int cx, int cy, int size, double angle, int color) {
+        double sx = Math.sin(angle), sy = -Math.cos(angle);      // direction
+        double px = -sy, py = sx;                                  // perpendicular
+        double tipX = cx + sx * size, tipY = cy + sy * size;
+        double tailX = cx - sx * size * 0.8, tailY = cy - sy * size * 0.8;
+        line(g, tailX, tailY, tipX, tipY, 2, color);
+        double bx = cx + sx * size * 0.15, by = cy + sy * size * 0.15;
+        line(g, tipX, tipY, bx + px * size * 0.7, by + py * size * 0.7, 2, color);
+        line(g, tipX, tipY, bx - px * size * 0.7, by - py * size * 0.7, 2, color);
+    }
+
     static void tri(GuiGraphicsExtractor g, int x, int y, int w, int h, int color, boolean right) {
         for (int j = 0; j < h; j++) {
             double t = h <= 1 ? 0 : Math.abs((2.0 * j) / (h - 1) - 1);
@@ -193,6 +239,73 @@ final class Ui {
                 g.fill(x + 2, y + 3, x + 8, y + 4, ON_ACCENT);
                 g.fill(x + 3, y + 5, x + 7, y + 6, ON_ACCENT);
                 g.fill(x + 3, y + 7, x + 6, y + 8, ON_ACCENT);
+            }
+            case 12 -> {
+                g.fill(x, y + 3, x + 3, y + 7, c);
+                g.fill(x + 3, y + 1, x + 5, y + 9, c);
+                g.fill(x + 6, y + 3, x + 7, y + 7, c);
+                g.fill(x + 8, y + 1, x + 9, y + 9, c);
+            }
+            case 13 -> {
+                g.fill(x + 5, y, x + 8, y + 2, c);
+                g.fill(x + 4, y + 2, x + 7, y + 4, c);
+                g.fill(x + 2, y + 4, x + 8, y + 6, c);
+                g.fill(x + 3, y + 6, x + 6, y + 8, c);
+                g.fill(x + 2, y + 8, x + 5, y + 10, c);
+            }
+            case 14 -> {
+                g.fill(x, y + 1, x + 10, y + 3, c);
+                g.fill(x + 2, y + 3, x + 8, y + 5, c);
+                g.fill(x + 4, y + 5, x + 6, y + 10, c);
+            }
+            case 15 -> {
+                rect(g, x, y, 10, 10, 5, c);
+                rect(g, x + 2, y + 2, 6, 6, 3, ON_ACCENT);
+                g.fill(x + 2, y + 4, x + 8, y + 6, c);
+            }
+            case 16 -> {
+                g.fill(x, y + 6, x + 2, y + 10, c);
+                g.fill(x + 4, y + 3, x + 6, y + 10, c);
+                g.fill(x + 8, y, x + 10, y + 10, c);
+            }
+            case 17 -> {
+                rect(g, x + 2, y, 6, 6, 3, c);
+                g.fill(x + 4, y + 6, x + 6, y + 10, c);
+                g.fill(x + 4, y + 2, x + 6, y + 4, ON_ACCENT);
+            }
+            case 18 -> {
+                rect(g, x, y + 1, 10, 8, 2, c);
+                rect(g, x + 1, y + 2, 8, 6, 1, ON_ACCENT);
+                g.fill(x + 2, y + 5, x + 4, y + 6, c);
+                g.fill(x + 4, y + 3, x + 5, y + 7, c);
+                g.fill(x + 5, y + 5, x + 8, y + 6, c);
+            }
+            case 22 -> {   // robot head
+                g.fill(x + 4, y, x + 6, y + 2, c);
+                g.fill(x + 1, y + 2, x + 9, y + 9, c);
+                g.fill(x + 2, y + 4, x + 4, y + 6, ON_ACCENT);
+                g.fill(x + 6, y + 4, x + 8, y + 6, ON_ACCENT);
+                g.fill(x + 3, y + 7, x + 7, y + 8, ON_ACCENT);
+            }
+            case 20 -> {   // trophy / giveaway
+                g.fill(x + 2, y, x + 8, y + 5, c);
+                g.fill(x, y + 1, x + 2, y + 3, c);
+                g.fill(x + 8, y + 1, x + 10, y + 3, c);
+                g.fill(x + 4, y + 5, x + 6, y + 8, c);
+                g.fill(x + 2, y + 8, x + 8, y + 10, c);
+            }
+            case 21 -> {   // speech bubble / quick phrases
+                g.fill(x, y, x + 10, y + 7, c);
+                g.fill(x + 2, y + 7, x + 5, y + 10, c);
+                g.fill(x + 2, y + 2, x + 8, y + 3, ON_ACCENT);
+                g.fill(x + 2, y + 4, x + 6, y + 5, ON_ACCENT);
+            }
+            case 19 -> {
+                g.fill(x + 1, y + 4, x + 9, y + 10, c);
+                g.fill(x, y + 2, x + 10, y + 5, c);
+                g.fill(x + 4, y + 2, x + 6, y + 10, ON_ACCENT);
+                g.fill(x + 2, y, x + 5, y + 2, c);
+                g.fill(x + 5, y, x + 8, y + 2, c);
             }
             default -> {
                 rect(g, x, y, 4, 4, 1, c);

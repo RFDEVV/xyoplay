@@ -29,16 +29,25 @@ final class TikWm {
     private static long lastCall;
 
     static List<YoutubeService.Video> search(String keywords) throws IOException {
-        JsonObject root = call("/api/feed/search?keywords=" + enc(keywords) + "&count=20&cursor=0&HD=1");
+        JsonObject root;
+        try {
+            root = call("/api/feed/search?keywords=" + enc(keywords) + "&count=20&cursor=0&HD=1");
+        } catch (IOException first) {
+            // second chance: the POST form of the same endpoint on the bare domain
+            try { root = postSearch(keywords); }
+            catch (IOException second) { throw first; }
+        }
         JsonObject data = object(root, "data");
         List<YoutubeService.Video> out = new ArrayList<>();
         if (data == null || !data.has("videos") || !data.get("videos").isJsonArray()) return out;
         JsonArray videos = data.getAsJsonArray("videos");
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (JsonElement element : videos) {
             if (!element.isJsonObject()) continue;
             JsonObject v = element.getAsJsonObject();
             String id = str(v, "video_id");
             if (id.isBlank()) id = str(v, "id");
+            if (!id.isBlank() && !seen.add(id)) continue;
             JsonObject author = object(v, "author");
             String uid = author == null ? "" : str(author, "unique_id");
             JsonObject music = object(v, "music_info");
@@ -55,6 +64,20 @@ final class TikWm {
             out.add(new YoutubeService.Video(title, webUrl, uploader, YoutubeService.formatDuration(seconds), audio, "TT", likes, plays, seconds));
         }
         return out;
+    }
+
+    private static synchronized JsonObject postSearch(String keywords) throws IOException {
+        long wait = 1250 - (System.currentTimeMillis() - lastCall);
+        if (wait > 0) sleep(wait);
+        String body;
+        try { body = Http.postForm("https://tikwm.com/api/feed/search", Map.of("Accept", "application/json", "Referer", "https://tikwm.com/"),
+                "keywords=" + enc(keywords) + "&count=20&cursor=0&web=1&hd=1"); }
+        finally { lastCall = System.currentTimeMillis(); }
+        try {
+            JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+            if (root.has("code") && root.get("code").getAsInt() == 0) return root;
+        } catch (RuntimeException e) { throw new IOException("Respons tikwm bukan JSON"); }
+        throw new IOException("tikwm tidak memberi hasil");
     }
 
     static Resolved resolve(String videoUrl) throws IOException {

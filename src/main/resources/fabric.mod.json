@@ -3,7 +3,7 @@
   "id": "xyoplay",
   "version": "${version}",
   "name": "XYOPlay Client",
-  "description": "Pemutar musik client dengan GUI musik modern, scroll dan input teks yang bisa diedit, progres audio, shuffle/repeat, pencarian YouTube, unduhan URL, serta pembaca komentar TikTok LIVE opsional dengan TTS lokal. Semua proses berjalan di client.",
+  "description": "Pemutar musik client + toolkit TikTok LIVE: Chaos Mode (gift, follow, like jadi mob, TNT, item, efek), TTS suara gratis terpisah untuk penonton dan chat sendiri, foto profil di layar, filter kata kasar, pin lokasi mati, dan pencarian TikTok 10 teratas. Semua berjalan di client.",
   "authors": [
     "RFDEVV"
   ],

@@ -1,12 +1,15 @@
 package id.rfdevv.xyoplay.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -27,16 +30,35 @@ public final class XYOPlayClient implements ClientModInitializer {
         ClientSettings.load();
         MusicLibrary.initialize();
         LocalAudioPlayer.initialize();
+        LiveFilter.ensureLoaded();
+        LiveActions.ensureLoaded();
+        Waypoints.ensureLoaded();
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { LocalAudioPlayer.stop(); TikTokLiveService.stop(); });
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("xyoplay", "now_playing"), (graphics, deltaTracker) -> Hud.render(graphics));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("xyoplay", "live_banner"), (graphics, deltaTracker) -> LiveBanner.render(graphics));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("xyoplay", "waypoint_marker"), (graphics, deltaTracker) -> Hud.renderMarker(graphics));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("xyoplay", "live_goal"), (graphics, deltaTracker) -> LiveGoal.render(graphics));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("xyoplay", "bot_afk"), (graphics, deltaTracker) -> Bots.renderHud(graphics));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("xyoplay", "info_line"), (graphics, deltaTracker) -> Hud.renderInfo(graphics));
 
-        // /xyoplay always works, even if another mod steals the X key.
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
-                dispatcher.register(ClientCommands.literal("xyoplay").executes(context -> { pendingOpen = true; return 1; })));
+        // Chat -> voice: while "Chat jadi suara" is on, what you type in the Minecraft chat is spoken (and, by default, not sent).
+        ClientSendMessageEvents.ALLOW_CHAT.register(message -> {
+            if (!ClientSettings.chatTts || message == null || message.isBlank()) return true;
+            TikTokLiveService.speak(message, 0, true);
+            McCompat.localMessage("§b[Suara]§f " + message);
+            return ClientSettings.chatTtsSend;
+        });
+
+        registerCommands();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (LocalAudioPlayer.takeCompletion()) Playback.onTrackEnded();
-            if (client.player == null) return;
+            if (client.player == null) { worldWarmed = false; Bots.onLeave(); return; }
+            if (!worldWarmed) { worldWarmed = true; if (ClientSettings.chatTts) TikTokLiveService.warmUp(); }
+            McCompat.tickRemote();
+            LiveActions.tick();
+            Waypoints.tick();
+            try { Bots.tick(); } catch (Throwable t) { Bots.problem = "bot error: " + t.getClass().getSimpleName(); }
 
             boolean fired = false;
             while (OPEN_KEY.consumeClick()) fired = true;
@@ -53,6 +75,96 @@ public final class XYOPlayClient implements ClientModInitializer {
                 else if (client.screen instanceof MusicScreen) client.setScreen(null);
             }
         });
+    }
+
+    private static void registerCommands() {
+        // /xyoplay always works, even if another mod steals the X key.
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
+                ClientCommands.literal("xyoplay")
+                        .executes(context -> { pendingOpen = true; return 1; })
+                        .then(ClientCommands.literal("say").then(ClientCommands.argument("teks", StringArgumentType.greedyString())
+                                .executes(context -> {
+                                    TikTokLiveService.speak(StringArgumentType.getString(context, "teks"), 0, true);
+                                    return 1;
+                                })))
+                        .then(ClientCommands.literal("tts")
+                                .then(ClientCommands.literal("on").executes(context -> { setChatTts(true); return 1; }))
+                                .then(ClientCommands.literal("off").executes(context -> { setChatTts(false); return 1; }))
+                                .then(ClientCommands.literal("stop").executes(context -> {
+                                    TikTokLiveService.stopSpeaking();
+                                    McCompat.localMessage("§e[XYOPlay]§f Suara dihentikan.");
+                                    return 1;
+                                })))
+                        .then(ClientCommands.literal("bot")
+                                .executes(context -> { McCompat.localMessage("§b[Bot]§7 " + Bots.status()); return 1; })
+                                .then(ClientCommands.argument("perintah", StringArgumentType.greedyString()).executes(context -> {
+                                    McCompat.localMessage("§b[Bot]§7 " + Bots.handle(StringArgumentType.getString(context, "perintah")));
+                                    return 1;
+                                })))
+                        .then(ClientCommands.literal("afk")
+                                .executes(context -> { McCompat.localMessage("§b[AFK]§7 " + Bots.handle("afk")); return 1; })
+                                .then(ClientCommands.literal("on").executes(context -> { McCompat.localMessage("§b[AFK]§7 " + Bots.handle("afk on")); return 1; }))
+                                .then(ClientCommands.literal("off").executes(context -> { McCompat.localMessage("§b[AFK]§7 " + Bots.handle("afk off")); return 1; })))
+                        .then(ClientCommands.literal("spawn").then(ClientCommands.argument("mob", StringArgumentType.word())
+                                .executes(context -> spawnTest(StringArgumentType.getString(context, "mob"), 1))
+                                .then(ClientCommands.argument("jumlah", IntegerArgumentType.integer(1, 20))
+                                        .executes(context -> spawnTest(StringArgumentType.getString(context, "mob"), IntegerArgumentType.getInteger(context, "jumlah"))))))
+                        .then(ClientCommands.literal("sim")
+                                .then(ClientCommands.literal("follow").executes(context -> { TikTokLiveService.simulate("follow", "Budi", "", 1, 0); return 1; }))
+                                .then(ClientCommands.literal("share").executes(context -> { TikTokLiveService.simulate("share", "Budi", "", 1, 0); return 1; }))
+                                .then(ClientCommands.literal("gift").then(ClientCommands.argument("nama", StringArgumentType.greedyString())
+                                        .executes(context -> {
+                                            String gift = GiftCatalog.canonical(StringArgumentType.getString(context, "nama"));
+                                            int price = GiftBook.priceOf(gift);
+                                            TikTokLiveService.simulate("gift", "Siti", gift, 1, price > 0 ? price : 1);
+                                            return 1;
+                                        })))
+                                .then(ClientCommands.literal("koin").then(ClientCommands.argument("harga", IntegerArgumentType.integer(1, 100000))
+                                        .executes(context -> {
+                                            int price = IntegerArgumentType.getInteger(context, "harga");
+                                            TikTokLiveService.simulate("gift", "Siti", "Gift Uji " + price, 1, price);
+                                            return 1;
+                                        })))
+                                .then(ClientCommands.literal("komentar").then(ClientCommands.argument("teks", StringArgumentType.greedyString())
+                                        .executes(context -> {
+                                            TikTokLiveService.simulate("comment", "Andi", StringArgumentType.getString(context, "teks"), 1, 0);
+                                            return 1;
+                                        }))))
+                        .then(ClientCommands.literal("ban").then(ClientCommands.argument("akun", StringArgumentType.word())
+                                .executes(context -> {
+                                    String user = StringArgumentType.getString(context, "akun");
+                                    McCompat.localMessage(LiveFilter.ban(user) ? "§e[XYOPlay]§f Akun diblokir: " + user : "§e[XYOPlay]§f Akun tidak valid / sudah diblokir.");
+                                    return 1;
+                                })))
+                        .then(ClientCommands.literal("unban").then(ClientCommands.argument("akun", StringArgumentType.word())
+                                .executes(context -> {
+                                    String user = StringArgumentType.getString(context, "akun");
+                                    McCompat.localMessage(LiveFilter.unban(user) ? "§e[XYOPlay]§f Blokir dibuka: " + user : "§e[XYOPlay]§f Akun itu tidak ada di daftar blokir.");
+                                    return 1;
+                                })))
+                        .then(ClientCommands.literal("titik").then(ClientCommands.argument("nama", StringArgumentType.greedyString())
+                                .executes(context -> {
+                                    Waypoints.Point p = Waypoints.addHere(StringArgumentType.getString(context, "nama"));
+                                    McCompat.localMessage(p == null ? "§e[XYOPlay]§f Masuk ke dunia dulu." : "§e[XYOPlay]§f Titik \"" + p.name() + "\" disimpan di " + Waypoints.coords(p));
+                                    return 1;
+                                })))));
+    }
+
+    private static boolean worldWarmed;
+
+    static void setChatTts(boolean on) {
+        ClientSettings.chatTts = on;
+        ClientSettings.save();
+        if (on) TikTokLiveService.speak("Mode chat jadi suara aktif", 0, true);
+        McCompat.localMessage(on
+                ? "§e[XYOPlay]§f Chat jadi suara §aAKTIF§f. Apa pun yang kamu ketik di chat akan dibacakan" + (ClientSettings.chatTtsSend ? " dan juga dikirim ke chat." : " (tidak dikirim ke chat).")
+                : "§e[XYOPlay]§f Chat jadi suara §cMATI§f.");
+    }
+
+    private static int spawnTest(String mob, int count) {
+        if (LiveActions.resolveMob(mob) == null) { McCompat.localMessage("§e[XYOPlay]§f Nama mob tidak dikenal: " + mob); return 0; }
+        for (int i = 0; i < count; i++) LiveActions.spawn(mob, "XYOPlay");
+        return 1;
     }
 
     /** Human readable key currently bound to the open shortcut, e.g. "X". */

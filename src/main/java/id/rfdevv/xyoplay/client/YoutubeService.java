@@ -19,6 +19,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
@@ -53,6 +55,10 @@ public final class YoutubeService {
     private static volatile double progress = -1;
     private static volatile int tiktokSort; // 0 relevance, 1 likes, 2 views
     private static final String[] SORT_NAMES = {"Relevan", "Suka", "Tayangan"};
+    /** How many search results are shown (the "10 best"). */
+    static final int MAX_RESULTS = 10;
+    /** When non-null, the first new track that appears after the running download is played automatically. */
+    private static volatile Set<Path> autoPlayBaseline;
 
     private YoutubeService() {}
 
@@ -107,7 +113,10 @@ public final class YoutubeService {
 
     // ------------------------------------------------------------------- search
 
-    public static void search(Source source, String query) {
+    public static void search(Source source, String query) { search(source, query, false); }
+
+    /** @param playTop download and play the best (first) result as soon as the search is done. */
+    public static void search(Source source, String query, boolean playTop) {
         if (query == null || query.isBlank()) { status = "Masukkan kata kunci pencarian"; return; }
         String q = query.trim();
         boolean viaYtDlp = source == Source.YOUTUBE || (source == Source.TIKTOK && (q.startsWith("@") || q.startsWith("#")));
@@ -127,6 +136,7 @@ public final class YoutubeService {
         if (source == Source.TIKTOK) TIKTOK_ORIGINAL.clear();
         status = switch (source) { case YOUTUBE -> "Mencari di YouTube…"; case TIKTOK -> "Mencari di TikTok…"; case SPOTIFY -> "Mencari lagu…"; };
         final String finalTarget = target;
+        final Video[] top = new Video[1];
         Thread worker = new Thread(() -> {
             try {
                 List<Video> found = new ArrayList<>();
@@ -168,9 +178,12 @@ public final class YoutubeService {
                     suffix = " · sumber " + result.source() + (result.note().isEmpty() ? "" : " (" + result.note() + ")");
                 }
                 if (cancelled) return;
+                if (found.size() > MAX_RESULTS) found = new ArrayList<>(found.subList(0, MAX_RESULTS));
+                if (playTop && !found.isEmpty()) top[0] = found.get(0);
                 if (source == Source.TIKTOK) { TIKTOK_ORIGINAL.addAll(found); applyTikTokSort(); }
                 else out.addAll(found);
-                status = found.isEmpty() ? "Tidak ada hasil. Coba kata kunci lain." : "Ditemukan " + found.size() + " hasil · klik untuk mengunduh" + suffix;
+                status = found.isEmpty() ? "Tidak ada hasil. Coba kata kunci lain."
+                        : "Ditemukan " + found.size() + " pilihan terbaik · klik untuk memutar" + suffix;
             } catch (Exception e) {
                 if (cancelled) return;
                 String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
@@ -181,6 +194,7 @@ public final class YoutubeService {
                 };
                 System.err.println("[XYOPlay] Pencarian: " + e);
             } finally { activeProcess = null; BUSY.set(false); }
+            if (top[0] != null && !cancelled) download(top[0], MusicLibrary.folder(), true);
         }, "XYOPlay-Search");
         worker.setDaemon(true); worker.start();
     }
@@ -242,7 +256,12 @@ public final class YoutubeService {
 
     // ----------------------------------------------------------------- download
 
-    public static void download(Video video, Path folder) {
+    public static void download(Video video, Path folder) { download(video, folder, ClientSettings.autoPlayDownloads); }
+
+    /** @param play start playing the new file as soon as the download is finished. */
+    public static void download(Video video, Path folder, boolean play) {
+        if (BUSY.get()) { status = "Tunggu proses sebelumnya selesai…"; return; }
+        autoPlayBaseline = play ? new HashSet<>(MusicLibrary.tracks()) : null;
         if (video.tag() != null && video.tag().startsWith("SP")) downloadMatched(video, folder);
         else if ("TT".equals(video.tag()) || isTikTok(video.url())) downloadTikTok(video.url(), video.title(), video.audioUrl(), video.uploader(), folder);
         else downloadUrl(video.url(), folder);
@@ -279,7 +298,7 @@ public final class YoutubeService {
                 Http.download(audio, target, Map.of("Referer", "https://www.tiktok.com/"), p -> progress = p, () -> cancelled);
                 MusicLibrary.refresh();
                 tagMetadata(target, name, artist);
-                status = "Unduhan selesai · " + MusicLibrary.tracks().size() + " lagu di pustaka";
+                finishDownload(target);
                 return;
             } catch (IOException e) { direct = e; }
             if (cancelled) return;
@@ -356,10 +375,26 @@ public final class YoutubeService {
         if (exit != 0) throw new IOException(firstError(output.toString()));
         MusicLibrary.refresh();
         if (safeBase != null) tagMetadata(folder.resolve(safeBase + ".mp3"), metaTitle, metaArtist);
-        status = "Unduhan selesai · " + MusicLibrary.tracks().size() + " lagu di pustaka";
+        finishDownload(safeBase == null ? null : folder.resolve(safeBase + ".mp3"));
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Updates the status line and, when requested, plays the file that was just downloaded. */
+    private static void finishDownload(Path known) {
+        MusicLibrary.refresh();
+        status = "Unduhan selesai · " + MusicLibrary.tracks().size() + " lagu di pustaka";
+        Set<Path> baseline = autoPlayBaseline;
+        autoPlayBaseline = null;
+        if (baseline == null || cancelled) return;
+        Path toPlay = null;
+        if (known != null && MusicLibrary.tracks().contains(known)) toPlay = known;
+        else for (Path p : MusicLibrary.tracks()) if (!baseline.contains(p)) { toPlay = p; break; }
+        if (toPlay != null) {
+            LocalAudioPlayer.play(toPlay);
+            status = "Memutar: " + MusicLibrary.title(toPlay);
+        }
+    }
 
     private interface Task { void run() throws Exception; }
 

@@ -34,11 +34,11 @@ final class ToolCheck {
                         ? new Line(false, "python 3: tidak ditemukan (pasang dari python.org, centang Add to PATH)")
                         : check("python", List.of(python), "--version"));
                 String probe = "import importlib.metadata as m,sys\n"
-                        + "for n in ('TikTokLive','pyttsx3'):\n"
+                        + "for n in ('TikTokLive','edge-tts','pyttsx3'):\n"
                         + "    try: print(n+' '+m.version(n))\n"
                         + "    except Exception: print(n+' MISSING')\n";
                 List<String> out = python == null ? List.of() : output(python, "-c", probe);
-                for (String name : new String[] {"TikTokLive", "pyttsx3"}) {
+                for (String name : new String[] {"TikTokLive", "edge-tts", "pyttsx3"}) {
                     String found = null;
                     for (String l : out) if (l.startsWith(name + " ")) found = l.substring(name.length() + 1).trim();
                     if (found != null && !found.equals("MISSING")) result.add(new Line(true, name + ": " + found));
